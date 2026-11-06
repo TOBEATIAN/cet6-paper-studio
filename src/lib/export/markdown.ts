@@ -1,0 +1,304 @@
+import type {
+  ExamPaper,
+  Question,
+} from "../types/exam";
+import { toStudentVersion } from "../exam/studentVersion";
+import { applyTranslationGlossary } from "../exam/translationGlossary";
+import { totalScore } from "../exam/merge";
+import {
+  groupQuestionsByType,
+  sectionScoreSummary,
+} from "../exam/paperSections";
+import { choiceDisplay, stripLeadingQuestionNumber } from "../exam/choiceDisplay";
+import {
+  studentAnswerSpaceLines,
+  studentBlankUnderlineLength,
+} from "../exam/pagination";
+import {
+  HIGHLIGHT_COLOR_VALUES,
+  TEXT_COLOR_VALUES,
+  renderStyledMarkdownSyntax,
+} from "../exam/markdownStyle";
+
+/**
+ * Pure paper -> Markdown assembly. Used by the Markdown file export and as the
+ * text counterpart of the live paper preview. Questions are grouped by type
+ * into numbered sections (一、二、三 …); each section restarts question numbering
+ * at 1. Choice options render as A/B/C unless the stem already includes option
+ * markers. Teacher output includes preview-like answer blocks; student output
+ * strips answers, expands fill-in blanks, and adds answer-space placeholders for
+ * subjective questions.
+ */
+
+export interface ExamInfoFieldFlags {
+  subject: boolean;
+  studentName: boolean;
+  duration: boolean;
+  totalScore: boolean;
+  score: boolean;
+}
+
+export interface MarkdownExportOptions {
+  includeAnswers: boolean;
+  /** When provided, render an exam-info header block under the title. */
+  header?: ExamInfoFieldFlags;
+}
+
+const BLANK = "__________";
+const ANSWER_SPACE_LINE = "> ";
+
+function buildHeader(paper: ExamPaper, flags: ExamInfoFieldFlags): string[] {
+  const meta = paper.metadata ?? {};
+  const parts: string[] = [];
+  if (flags.subject) parts.push(`科目：${headerValue(meta.subject)}`);
+  if (flags.studentName) parts.push(`姓名：${BLANK}`);
+  if (flags.duration) {
+    parts.push(`时长：${meta.duration != null ? `${meta.duration}` : BLANK}`);
+  }
+  if (flags.totalScore) {
+    const total = meta.totalScore ?? totalScore(paper);
+    parts.push(`总分：${total}`);
+  }
+  if (flags.score) parts.push(`得分：${BLANK}`);
+  return parts.length ? [parts.join("　　"), "", "---", ""] : [];
+}
+
+function headerValue(value: string | undefined): string {
+  return value?.trim() ? `${value}${BLANK}` : BLANK;
+}
+
+function renderOptions(options: string[]): string[] {
+  return options.map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`);
+}
+
+function renderFillBlankContent(question: Question): string {
+  if (question.type !== "fill-in-blank") return question.content;
+  const blankLength = studentBlankUnderlineLength(question);
+  const replacement = "_".repeat(blankLength);
+  const content = stripLeadingQuestionNumber(question.content);
+  return /_{3,}/.test(content)
+    ? content.replace(/_{3,}/g, replacement)
+    : `${content} ${Array.from(
+        { length: Array.isArray(question.blanks) ? question.blanks.length : 1 },
+        () => replacement,
+      ).join(" ")}`;
+}
+
+function renderStyledMarkdown(content: string): string {
+  return renderStyledMarkdownSyntax(content, (marker) => {
+    if (marker.type === "textColor") {
+      const value = TEXT_COLOR_VALUES[marker.color];
+      return value
+        ? `<span style="color:${value}">${marker.text}</span>`
+        : marker.text;
+    }
+    const value = HIGHLIGHT_COLOR_VALUES[marker.color];
+    return value
+      ? `<mark style="background-color:${value}">${marker.text}</mark>`
+      : marker.text;
+    });
+}
+
+/** Preview-aligned answer + explanation lines for teacher output only. */
+function renderAnswer(q: Question): string[] {
+  const lines: string[] = [];
+
+  for (const section of getAnswerSections(q)) {
+    if (!section.content?.trim()) continue;
+    lines.push(`> **【${section.label}】**`);
+    lines.push(...blockquoteContent(section.content));
+  }
+
+  if ("explanation" in q && q.explanation?.trim()) {
+    lines.push(`> **【解析】**`);
+    lines.push(...blockquoteContent(q.explanation));
+  }
+
+  return lines;
+}
+
+function renderQuestion(
+  q: Question,
+  number: number,
+  includeAnswers: boolean,
+): string[] {
+  const choice =
+    q.type === "single-choice" || q.type === "multiple-choice"
+      ? choiceDisplay(q)
+      : null;
+  const content =
+    choice?.stem ??
+    (!includeAnswers && q.type === "fill-in-blank"
+      ? renderFillBlankContent(q)
+      : stripLeadingQuestionNumber(q.content));
+  const displayedContent =
+    q.examSection?.kind === "cet-translation"
+      ? applyTranslationGlossary(content, q.examSection.glossary)
+      : content;
+  const lines: string[] = [
+    `${
+      q.examSection?.kind === "cet-writing" ? "" : `${number}. `
+    }${renderStyledMarkdown(displayedContent)}`,
+  ];
+  if (choice && choice.options.length > 0) {
+    if (!q.examSection?.hideOptions) {
+      lines.push("", ...renderOptions(choice.options.map(renderStyledMarkdown)));
+    }
+  }
+  if (includeAnswers) {
+    const answer = renderAnswer(q);
+    if (answer.length) lines.push("", ...answer);
+  } else {
+    const answerSpace = renderStudentAnswerSpace(q);
+    if (answerSpace.length) lines.push("", ...answerSpace);
+  }
+  lines.push("");
+  return lines;
+}
+
+function renderStudentAnswerSpace(question: Question): string[] {
+  const lines = studentAnswerSpaceLines(question);
+  if (lines === 0) return [];
+  return Array.from({ length: lines }, () => ANSWER_SPACE_LINE);
+}
+
+function blockquoteContent(content: string): string[] {
+  const lines = renderStyledMarkdown(content).split(/\r?\n/);
+  return lines.map((line) => (line.trim() ? `> ${line}` : ">"));
+}
+
+interface AnswerSection {
+  label: string;
+  content?: string;
+}
+
+function getAnswerSections(question: Question): AnswerSection[] {
+  switch (question.type) {
+    case "single-choice":
+      return [
+        {
+          label: "答案",
+          content: String.fromCharCode(65 + question.correctAnswer),
+        },
+      ];
+    case "multiple-choice":
+      return [
+        {
+          label: "答案",
+          content: (Array.isArray(question.correctAnswers)
+            ? question.correctAnswers
+            : []
+          )
+            .map((i) => String.fromCharCode(65 + i))
+            .join(", "),
+        },
+      ];
+    case "true-false":
+      return [{ label: "答案", content: question.correctAnswer ? "正确" : "错误" }];
+    case "fill-in-blank":
+      return [
+        {
+          label: "答案",
+          content: (Array.isArray(question.blanks) ? question.blanks : []).join(
+            " / ",
+          ),
+        },
+      ];
+    case "short-answer": {
+      const sections: AnswerSection[] = [
+        { label: "答案", content: question.referenceAnswer },
+      ];
+      if (question.scoringPoints?.length) {
+        sections.push({
+          label: "评分要点",
+          content: question.scoringPoints.map((point) => `- ${point}`).join("\n"),
+        });
+      }
+      return sections;
+    }
+    case "essay":
+      return [
+        ...(question.writingGuidance || question.explanation
+          ? [{
+              label: "写作思路",
+              content: question.writingGuidance ?? question.explanation,
+            }]
+          : []),
+        { label: "评分标准", content: question.scoringCriteria },
+      ];
+    case "calculation":
+      return [
+        { label: "答案", content: question.answer },
+        { label: "解题步骤", content: question.solution },
+      ];
+  }
+}
+
+export function paperToMarkdown(
+  paper: ExamPaper,
+  options: MarkdownExportOptions,
+): string {
+  const { includeAnswers } = options;
+  const source = includeAnswers ? paper : toStudentVersion(paper);
+
+  const lines: string[] = [`# ${source.title || "未命名试卷"}`, ""];
+  if (options.header) lines.push(...buildHeader(source, options.header));
+
+  for (const section of groupQuestionsByType(source)) {
+    const isCet = section.kind?.startsWith("cet-");
+    lines.push(
+      `## ${section.title}${
+        isCet
+          ? ""
+          : ` ${formatSectionScoreSummary(
+              sectionScoreSummary(section.questions),
+            )}`
+      }`,
+      "",
+    );
+    if (section.instructions) {
+      lines.push(`**${section.instructions}**`, "");
+    }
+    if (section.passage?.trim()) {
+      lines.push(renderStyledMarkdown(section.passage.trim()), "");
+    }
+    if (section.optionBank?.length) {
+      lines.push(
+        section.kind === "cet-reading-a"
+          ? `Word bank: ${section.optionBank
+              .map(
+                (word, index) =>
+                  `${String.fromCharCode(65 + index)}. ${word}`,
+              )
+              .join("　")}`
+          : `Paragraph choices: ${section.optionBank
+              .map((_, index) => String.fromCharCode(65 + index))
+              .join("　")}`,
+        "",
+      );
+    }
+    section.questions.forEach((q, i) => {
+      if (!section.passage && q.examSection?.passage) {
+        lines.push(renderStyledMarkdown(q.examSection.passage), "");
+      }
+      lines.push(
+        ...renderQuestion(
+          q,
+          q.examSection?.questionNumber ?? i + 1,
+          includeAnswers,
+        ),
+      );
+    });
+  }
+
+  return lines.join("\n").trimEnd() + "\n";
+}
+
+function formatSectionScoreSummary(
+  summary: ReturnType<typeof sectionScoreSummary>,
+): string {
+  if (summary.perQuestionScore == null) {
+    return `共${summary.count}题 共${summary.totalScore}分`;
+  }
+  return `共${summary.count}题 每小题${summary.perQuestionScore}分 共${summary.totalScore}分`;
+}

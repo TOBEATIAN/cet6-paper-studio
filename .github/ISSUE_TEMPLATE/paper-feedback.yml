@@ -1,0 +1,57 @@
+name: 内容反馈：题目、答案或听力
+description: 报告题目质量、答案、解析、难度、排版或听力问题
+title: "[内容] "
+labels:
+  - content
+body:
+  - type: input
+    id: paper
+    attributes:
+      label: 试卷名称或 paperId
+    validations:
+      required: true
+  - type: input
+    id: question
+    attributes:
+      label: 题号
+      placeholder: 例如 31、Q46–50、写作、翻译
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 问题类型
+      options:
+        - 答案错误
+        - 解析错误或依据不足
+        - 存在第二个答案
+        - 题目与文章/音频不一致
+        - 难度不合适
+        - 排版或分页
+        - 听力文本、音色、语速或停顿
+        - 原创性与引用风险
+    validations:
+      required: true
+  - type: textarea
+    id: judgement
+    attributes:
+      label: 你的判断
+      description: 请指出原文、选项和解析中哪里冲突
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: 建议怎么修改
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 截图或音频时间点
+      description: 音频问题请尽量提供分钟和秒
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我已移除个人作答、账号和 API Key 等敏感信息
+          required: true

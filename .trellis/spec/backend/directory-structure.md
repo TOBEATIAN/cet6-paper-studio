@@ -1,0 +1,383 @@
+# Directory Structure (Rust / Tauri backend)
+
+> How the `src-tauri/` backend is organized.
+
+---
+
+## Directory Layout
+
+```
+src-tauri/src/
+├── main.rs        # binary entry — calls examgen_lib::run()
+├── lib.rs         # tauri::Builder, plugin registration, invoke_handler
+├── error.rs       # AppError enum + AppResult (see error-handling.md)
+├── keychain.rs    # OS keychain commands (API key storage)
+├── storage.rs     # bootstrap pointer + data-dir + config/paper JSON I/O
+└── openai.rs      # OpenAI-compatible API (streaming chat, models, test)
+```
+
+Crate name is `examgen` (lib `examgen_lib`). Each concern is one module; commands
+live next to their domain logic, not in a central commands.rs.
+
+---
+
+## Convention: one module per concern, register in lib.rs
+
+**What:** A new backend feature gets its own `src-tauri/src/<concern>.rs` with
+`#[tauri::command]` fns, then registered in `lib.rs`:
+
+```rust
+mod openai;
+// ...
+.invoke_handler(tauri::generate_handler![
+    keychain::store_api_key, keychain::get_api_key, /* ... */
+    openai::stream_chat, openai::abort_chat, openai::list_models, openai::test_connection,
+])
+```
+
+**Why:** keeps the IPC surface auditable in one place; matches how PR1–PR2 grew.
+
+---
+
+## Command Signatures (current IPC surface)
+
+Args are snake_case in Rust, called as camelCase from JS (`invoke('name', { camelArg })`).
+
+**keychain.rs** — keyed by model-config `id`:
+- `store_api_key(account, secret) -> AppResult<()>`
+- `get_api_key(account) -> AppResult<Option<String>>`
+- `delete_api_key(account) -> AppResult<()>`  (no-op if absent)
+- `has_api_key(account) -> AppResult<bool>`
+
+**storage.rs** — JSON persisted in the user-chosen data dir; only a bootstrap
+pointer lives in the Tauri app-data dir:
+- `get_data_dir() -> AppResult<Option<String>>`
+- `set_data_dir(data_dir) -> AppResult<()>`
+- `relocate_data_dir(target_dir, delete_old_dir) -> AppResult<RelocateDataDirResult>`  (copy current data dir contents, then update bootstrap pointer)
+- `default_data_dir() -> AppResult<String>`  (Documents/AI试卷)
+- `open_data_dir(data_dir) -> AppResult<()>`  (create if missing, then open in platform file manager)
+- `load_config(data_dir) / save_config(data_dir, contents)`  (raw JSON string)
+- `load_working_paper(data_dir) / save_working_paper(data_dir, contents)`
+- `load_paper_index(data_dir) / save_paper_index(data_dir, contents)`
+- `load_paper(data_dir, paper_id) / save_paper(data_dir, paper_id, contents) / delete_paper(data_dir, paper_id)`
+- `load_chat_index(data_dir, paper_id) / save_chat_index(data_dir, paper_id, contents)`
+- `load_chat_session(data_dir, paper_id, session_id) / save_chat_session(...) / delete_chat_session(...)`
+
+**openai.rs** — see frontend `state-management.md` for the event contract:
+- `stream_chat(base_url, api_key, model, messages, temperature?, max_tokens?) -> AppResult<()>` (streams via events)
+- `complete_chat(base_url, api_key, model, messages, temperature?, max_tokens?) -> AppResult<String>` (one non-streaming response for staged generation)
+- `abort_chat() -> AppResult<()>`
+- `list_models(base_url, api_key) -> AppResult<Vec<String>>`
+- `test_connection(base_url, api_key) -> AppResult<()>`
+
+**storage.rs** also owns resumable CET generation checkpoints:
+- `load_cet6_checkpoint(data_dir, paper_id) -> AppResult<Option<String>>`
+- `save_cet6_checkpoint(data_dir, paper_id, contents) -> AppResult<()>`
+- `delete_cet6_checkpoint(data_dir, paper_id) -> AppResult<()>`
+- `save_cet6_diagnostic(data_dir, paper_id, file_stem, contents) -> AppResult<()>`
+- `open_cet6_diagnostic_dir(data_dir, paper_id) -> AppResult<()>`
+
+Checkpoint files live under `generation/cet6/{safePaperId}.json`. Rust stores
+raw JSON only; TypeScript validates the checkpoint with Zod. Deleting a paper
+also removes its checkpoint. API keys are never part of a checkpoint.
+
+Generation diagnostics live under
+`generation/cet6/diagnostics/{safePaperId}/`. Each failed attempt stores the
+stage, attempt number, provider/model, duration, validation error, request
+messages, and raw model reply. These files must never contain an API key or
+authorization header. Diagnostics are best-effort: a failed diagnostic write
+must not replace the original generation error.
+
+---
+
+## Convention: Rust stores/forwards, frontend owns schema
+
+**What:** storage commands read/write **raw JSON strings**. They do NOT
+deserialize into typed structs. Zod validation happens on the frontend
+(`src/lib/storage/tauri.ts`).
+
+**Why:** the canonical data contract (exam paper, config) is the Zod schema in
+TS. Duplicating it as Rust structs would create two sources of truth that drift.
+Rust is a thin, schema-agnostic persistence + network layer.
+
+**Related:** `frontend/type-safety.md` (Zod as the single contract).
+
+Paper library and chat history commands follow the same rule. Rust owns the
+directory layout (`papers/`, `chats/`) and safe file names; TypeScript owns
+`PaperIndex`, `ChatIndex`, and `ChatSession` validation. `save_paper` also
+updates `working-paper.json` as a compatibility mirror of the active paper.
+
+---
+
+## Convention: secrets never cross into domain modules
+
+`openai.rs` receives the API key as a parameter; it never reads the keychain
+itself. The frontend fetches the key via `get_api_key` then passes it to
+`stream_chat`/`list_models`/`test_connection`. Keeps secret access in one module
+and out of network/logging code. See `error-handling.md`.
+
+---
+
+## Capabilities
+
+Plugin permissions are declared in `src-tauri/capabilities/default.json`
+(`dialog:default`, `fs:default`, `opener:default` added on top of `core:default`).
+A new plugin needs both `.plugin(...)` in lib.rs AND its permission here.
+
+## Scenario: Opening the User Data Directory
+
+### 1. Scope / Trigger
+
+- Trigger: settings UI needs to open a user-selected local directory in the
+  system file manager.
+- This crosses frontend component → TS storage wrapper → Rust command → OS
+  process boundary, so the command contract belongs in backend code-spec.
+
+### 2. Signatures
+
+- Rust command: `open_data_dir(data_dir: String) -> AppResult<()>`
+- Frontend wrapper: `openDataDir(dataDir: string): Promise<void>`
+- Component call site: `DataDirSection` calls the wrapper; it must not call
+  `@tauri-apps/plugin-opener.openPath` directly for arbitrary data dirs.
+
+### 3. Contracts
+
+- Request field `data_dir`: absolute or user-selected directory path.
+- Behavior: Rust calls `fs::create_dir_all(data_dir)` first, then spawns the
+  platform file manager:
+  - Windows: `explorer <path>`
+  - macOS: `open <path>`
+  - Linux/Unix: `xdg-open <path>`
+- Response: `Ok(())` means the OS process was spawned. It does not guarantee
+  the file manager window stayed open or came to the front.
+
+### 4. Validation & Error Matrix
+
+| Condition | Result |
+|-----------|--------|
+| Directory missing but creatable | create it, then open |
+| Directory creation denied | `AppError::Io` |
+| File manager command cannot spawn | `AppError::Io` |
+| Frontend receives rejection | show localized settings error feedback |
+
+### 5. Good/Base/Bad Cases
+
+- Good: configured path exists and opens in Explorer/Finder/file manager.
+- Base: configured path was deleted; command recreates it and opens it.
+- Bad: frontend calls `openPath(dataDir)` directly and Tauri opener path scope
+  rejects the arbitrary user directory, making the button appear inert.
+
+### 6. Tests Required
+
+- Component regression test asserts the button calls `openDataDir(dataDir)`.
+- Component rejection test asserts localized error feedback appears.
+- `cargo check --manifest-path src-tauri/Cargo.toml` must pass after command
+  registration changes in `lib.rs`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+await openPath(dataDir);
+```
+
+#### Correct
+
+```tsx
+await openDataDir(dataDir);
+```
+
+## Scenario: Relocating the User Data Directory
+
+### 1. Scope / Trigger
+
+- Trigger: settings UI lets the user move the configured data directory.
+- This crosses frontend component → config store → TS storage wrapper → Rust
+  command → filesystem/bootstrap pointer, so the migration contract belongs in
+  backend code-spec.
+
+### 2. Signatures
+
+- Rust command:
+  `relocate_data_dir(target_dir: String, delete_old_dir: bool) -> AppResult<RelocateDataDirResult>`
+- Frontend wrapper:
+  `relocateDataDir(targetDir: string, deleteOldDir?: boolean): Promise<RelocateDataDirResult>`
+- Store action: `configStore.chooseDataDir(dir)` calls relocation before it
+  changes in-memory `dataDir`.
+
+### 3. Contracts
+
+- Request field `target_dir`: user-selected absolute or platform-valid
+  directory path.
+- Request field `delete_old_dir`: default-false frontend option. When true,
+  Rust deletes the old data directory only after copy succeeds and bootstrap
+  points to the new directory.
+- Response fields:
+  `{ oldDirDeleted: boolean, oldDirDeleteFailed: boolean }`.
+- Behavior: create `target_dir`, read the current bootstrap pointer, recursively
+  copy all current data-dir contents into `target_dir`, then update
+  `bootstrap.json` only after copy succeeds.
+- If no current data dir is configured, or the configured source no longer
+  exists, behave like first launch: create the target and update the pointer.
+- API keys are not migrated because they live in OS keychain, not in the data
+  directory.
+- `Ok(result)` means the app now points at `target_dir`. If
+  `oldDirDeleteFailed` is true, migration succeeded but cleanup should be shown
+  as a warning rather than a relocation failure.
+
+### 4. Validation & Error Matrix
+
+| Condition | Result |
+|-----------|--------|
+| Target equals current directory | no-op success |
+| Current source missing/unconfigured | create target, update bootstrap |
+| Target is inside current directory | `AppError::Io` to avoid recursive self-copy |
+| Directory create/copy denied | `AppError::Io`; bootstrap remains unchanged |
+| Target has existing files | merge, overwriting same-name files with current data |
+| Old directory deletion denied after successful migration | `Ok({ oldDirDeleteFailed: true })`; bootstrap remains on target |
+
+### 5. Good/Base/Bad Cases
+
+- Good: current directory has `config.json`, `working-paper.json`, `papers/`,
+  and `chats/`; all appear in the target before bootstrap changes.
+- Base: user selects an empty new folder; migration succeeds and old folder is
+  retained.
+- Cleanup: user enables deletion; old folder is removed only after migration
+  success. If removal fails, UI warns while keeping the new directory active.
+- Bad: frontend calls `setDataDir(target)` directly for relocation. This points
+  the app at an empty/new folder before data is copied and can make data appear
+  lost.
+
+### 6. Tests Required
+
+- Rust tests for full recursive copy, overwrite merge, same-directory no-op,
+  missing-source first-launch behavior, nested-target rejection, and optional
+  old-directory cleanup.
+- Frontend store test asserts `chooseDataDir` invokes `relocate_data_dir`, not
+  `set_data_dir`, passes `deleteOldDir`, and keeps the old `dataDir` when
+  relocation rejects.
+- Settings component test asserts relocation failures show localized feedback.
+  Also cover the cleanup toggle and cleanup warning.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+await setDataDir(targetDir);
+```
+
+#### Correct
+
+```tsx
+await relocateDataDir(targetDir, deleteOldDir);
+```
+
+## Scenario: Web Search Provider Proxy
+
+### 1. Scope / Trigger
+
+- Trigger: assistant web search calls third-party search APIs before a model
+  turn, then returns normalized sources to the frontend.
+- This crosses frontend settings/chat state → Tauri command → provider HTTP API
+  → frontend Zod validation → assistant prompt injection.
+
+### 2. Signatures
+
+- Rust command:
+  `web_search(provider, api_key, query, result_count, content_mode) -> AppResult<Vec<WebSearchResult>>`
+- Rust command:
+  `test_web_search(provider, api_key, content_mode) -> AppResult<()>`
+- Frontend wrappers:
+  `webSearch(args): Promise<WebSearchResult[]>`
+  and `testWebSearch(args): Promise<void>`
+
+### 3. Contracts
+
+- `provider`: `"tavily" | "exa" | "firecrawl"`.
+- `api_key`: secret from OS keychain; never persisted in `config.json`.
+- `query`: user message text used for the search.
+- `result_count`: bounded to 3-10 before provider calls.
+- `content_mode`: `"summary" | "deep"`.
+- Response result:
+  `{ title, url, snippet, content?, publishedAt?, provider }`.
+- Rust owns provider-specific HTTP request/response mapping.
+- TypeScript owns persisted config and chat-history validation with Zod.
+
+### 4. Validation & Error Matrix
+
+| Condition | Result |
+|-----------|--------|
+| Missing key | Frontend blocks before command or returns non-retryable auth error |
+| Provider 401/403 | `AppError::Auth` |
+| Provider 429 | `AppError::Quota` |
+| Timeout/connect failure | `AppError::Timeout` / `AppError::Network` |
+| Other provider status/body parse issue | `AppError::Http` / `AppError::Serde` |
+| Too-low/too-high result count | Clamp to 3-10 in Rust and validate in TS settings |
+
+### 5. Good/Base/Bad Cases
+
+- Good: configured provider returns normalized sources; frontend injects them
+  into the model prompt and renders a persisted source card.
+- Base: provider returns some sparse fields; normalization keeps URL and empty
+  strings rather than panicking.
+- Bad: search fails and assistant silently falls back to ordinary chat. The
+  required behavior is to block the model call so the user is not misled.
+
+### 6. Tests Required
+
+- Rust unit tests for result-count bounds and Unicode-safe truncation.
+- Frontend schema tests for web-search settings defaults/bounds and persisted
+  `webSearch` chat messages.
+- `cargo check`, `cargo test`, `npm run typecheck`, and `npm test` after command
+  or payload changes.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```tsx
+// Search failed, but this still invokes the model with no web context.
+await runChat();
+```
+
+#### Correct
+
+```tsx
+const results = await performWebSearch(trimmed);
+if (results == null) return;
+await runChat(results);
+```
+
+### Gotcha: `fs:default` does not grant file writes
+
+`fs:default` only covers app-specific directory reads and directory creation. If
+frontend code uses `@tauri-apps/plugin-fs` to read or write user-selected files,
+grant the exact command permission in `src-tauri/capabilities/default.json`.
+
+Good:
+
+```json
+{
+  "permissions": [
+    "dialog:default",
+    "fs:default",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file"
+  ]
+}
+```
+
+Bad:
+
+```json
+{
+  "permissions": ["dialog:default", "fs:default"]
+}
+```
+
+Why: `dialog.open()` / `dialog.save()` add the selected path to the runtime fs
+scope, but the `read_text_file` / `write_text_file` commands still need to be
+enabled. Without the command permission, export/import flows can look like
+no-ops unless the UI surfaces the rejected promise.

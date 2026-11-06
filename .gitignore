@@ -1,0 +1,44 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+src-tauri/sidecars/build/
+src-tauri/sidecars/dist/
+src-tauri/sidecars/.tmp-*/
+src-tauri/sidecars/**/__pycache__/
+src-tauri/resources/kitten-tts.exe
+
+# Temporary local TTS benchmark cache (models and disposable Python venv)
+.tmp_tts_probe/
+.tmp_kitten_probe.wav
+tmp/
+dist-ssr
+*.local
+
+# Local workflow/runtime files and generated release artifacts
+.agents/
+.codex/
+release/
+cc-switch-3.16.1/
+.trellis/tasks/
+.trellis/workspace/
+.trellis/.developer
+.trellis/.runtime/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

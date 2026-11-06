@@ -1,0 +1,34 @@
+name: 功能建议
+description: 提出使用体验、做题、批注、复盘或发布方面的建议
+title: "[建议] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景
+      description: 你在做什么时觉得不方便？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望怎么改
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 现有替代做法
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 你认为的影响
+      options:
+        - 影响正常使用
+        - 明显降低效率
+        - 体验优化
+        - 锦上添花
+    validations:
+      required: true
