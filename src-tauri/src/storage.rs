@@ -515,42 +515,6 @@ pub fn read_image_file(path: String) -> AppResult<Vec<u8>> {
     Ok(fs::read(file)?)
 }
 
-#[tauri::command]
-pub fn read_default_donation_qr(app: AppHandle, kind: String) -> AppResult<Vec<u8>> {
-    let file_name = match kind.as_str() {
-        "wechat" => "wechat-donation.jpg",
-        "alipay" => "alipay-donation.jpg",
-        _ => {
-            return Err(crate::error::AppError::Io(
-                "unsupported donation QR kind".into(),
-            ))
-        }
-    };
-    let mut candidates = Vec::new();
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        candidates.push(resource_dir.join("donation").join(file_name));
-        candidates.push(
-            resource_dir
-                .join("resources")
-                .join("donation")
-                .join(file_name),
-        );
-    }
-    candidates.push(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("resources")
-            .join("donation")
-            .join(file_name),
-    );
-    let path = candidates
-        .into_iter()
-        .find(|candidate| candidate.is_file())
-        .ok_or_else(|| {
-            crate::error::AppError::Io(format!("default donation QR is missing: {file_name}"))
-        })?;
-    Ok(fs::read(path)?)
-}
-
 // ---- Paper-scoped review records ----
 
 #[tauri::command]

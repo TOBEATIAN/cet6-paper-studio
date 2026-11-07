@@ -1,6 +1,6 @@
 [package]
 name = "cet6-paper-studio"
-version = "0.3.13"
+version = "0.3.14"
 description = "Local-first CET-6 mock paper authoring studio"
 authors = ["you"]
 edition = "2021"

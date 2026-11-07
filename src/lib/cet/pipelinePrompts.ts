@@ -1,8 +1,10 @@
 import type { ApiMessage } from "../types/library";
 import type { Cet6Blueprint, Cet6ContentStage } from "../types/cet";
+import type { Question } from "../types/exam";
 import { CET6_STAGE_SPECS, expectedQuestionCount } from "./structure";
 import { createReadingBAnswerPlan } from "./readingBPlan";
 import type { ReadingCPassagePlan } from "./readingCPlan";
+import { readingCRealExamReferenceText } from "./realExamProfiles";
 import type { WritingOpeningStyle } from "./writingPlan";
 
 const SYSTEM_PROMPT = `You are an experienced CET-6 assessment writer and editor.
@@ -280,6 +282,10 @@ ${validationError}`
 Topic:
 ${passagePlan.source.topic}
 
+Primary real CET-6 reference profiles (2022 and later; aggregate statistics only,
+never copy their passages or questions):
+${readingCRealExamReferenceText()}
+
 Return exactly:
 {"passage":"paragraph one\\nparagraph two\\n..."}
 
@@ -296,6 +302,9 @@ ${wordPattern}
 - Include at least one curly-quoted direct quotation and attribute it to a full person name in the same sentence.
 - Include a named researcher, expert, official or institution that can support a later opinion question.
 - Use a clear argumentative or explanatory structure, not a list of disconnected facts.
+- Use the real-paper profiles above as the primary distribution target. The
+  exact paragraph plan below is subordinate to the configured 430-450-word band
+  and must remain as close as practical to those real-paper profiles.
 - Do not include questions, options, answers, explanations, source metadata, headings or prose outside the JSON object.${correction}`,
     },
   ];
@@ -351,6 +360,9 @@ Question plan:
 - Fixed question kinds: ${kindMap}
 - Fixed correct answer positions: ${answerMap}
 - Fixed evidence paragraph positions: ${paragraphMap}
+- Real CET-6 2022+ option calibration: this set should remain inside the
+  measured 8.1-9.8-word option-average range, with 4-7 long-option questions
+  and 0-2 all-short-option questions across the ten questions.
 - Use exactly four text options for every question and set correctAnswer to the fixed index.
 - All four options must contain at least three words; longest-minus-shortest per question must be at most six words.
 - In every question, at least one distractor must be no shorter than the correct option.
@@ -365,8 +377,16 @@ Question plan:
 - The correct option must be a cross-sentence paraphrase. Its longest identical word
   sequence must be at most three words; no more than two of the ten questions may use
   a three-word sequence.
-- At least two distractors in each question should quote or paraphrase a locatable
-  detail from the target paragraph or an adjacent paragraph, while still being wrong.
+- At least two distractors in each question must be grounded in a locatable
+  detail, but each must change exactly one decisive dimension: actor, object,
+  time, cause, degree, or scope. Do not satisfy this requirement by copying more
+  wording than the correct option.
+- Do not make the correct option and any distractor depend on the same source
+  sentence when that distractor covers at least 60% of its content words.
+- Strongest distractors may be difficult, but the intended strongest distractor
+  must either stay below 50% support or trail the correct option by at least 15
+  percentage points. Every strong distractor needs one explicit wrong wording or
+  relation that can be quoted from the passage.
 - Correct options across the ten Reading C questions should average no more than 40% content-word overlap with their strongest supporting sentence.
 - Build the correct option with synonyms and facts combined across at least two clauses or sentences.
 - Include plausible distractors using these types: 张冠李戴, 程度偏移, 无中生有, 答非所问, 因果倒置, 与原文相悖, 半对半错, 偷换范围.
@@ -376,6 +396,45 @@ ${namedOpinion ? `- Q${namedOpinion} is the attitude question and must begin: "W
 
 Return exactly:
 {"questions":[{"id":"...","type":"single-choice","content":"...","options":["...","...","...","..."],"correctAnswer":0,"explanation":"...","score":14.2,"examSection":{"kind":"cet-reading-c","groupId":"passage-${passagePlan.index + 1}","title":"Reading Section C · Passage ${passagePlan.index + 1}","questionNumber":${firstNumber}}}]}${correction}`,
+    },
+  ];
+}
+
+export function buildCet6ReadingCGroupRepairPrompt(
+  passagePlan: ReadingCPassagePlan,
+  passage: string,
+  questions: readonly Question[],
+  riskCorrection: string,
+): ApiMessage[] {
+  const firstNumber = passagePlan.index === 0 ? 46 : 51;
+  return [
+    { role: "system", content: SYSTEM_PROMPT },
+    {
+      role: "user",
+      content: `Repair only Reading Section C questions ${firstNumber}-${firstNumber + 4}.
+
+Frozen passage:
+${passage}
+
+Current question group:
+${JSON.stringify(questions, null, 2)}
+
+Unresolved strong-distractor review:
+${riskCorrection}
+
+Rules:
+- Return exactly five questions in the same JSON schema.
+- Preserve every question id, question number, correctAnswer, para and question kind.
+- Preserve a question when it is not listed above.
+- Rewrite only the listed distractor option and the explanation needed to make
+  its decisive factual error explicit.
+- Do not weaken the correct option merely to manufacture a score gap.
+- Never create two options supported by the same proposition from one sentence.
+- The final explanation must remain Chinese, discuss A)-D), cite a short English
+  phrase in curly quotes, name the allowed error type, and end with “故选 X。”.
+
+Return exactly:
+{"questions":[{"id":"...","type":"single-choice","content":"...","options":["...","...","...","..."],"correctAnswer":0,"explanation":"...","score":14.2,"examSection":{"kind":"cet-reading-c","groupId":"passage-${passagePlan.index + 1}","title":"Reading Section C · Passage ${passagePlan.index + 1}","questionNumber":${firstNumber}}}]}`,
     },
   ];
 }

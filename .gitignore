@@ -21,6 +21,9 @@ src-tauri/resources/kitten-tts.exe
 tmp/
 dist-ssr
 *.local
+.env
+.env.production
+!.env.production.example
 
 # Local workflow/runtime files and generated release artifacts
 .agents/
@@ -31,6 +34,7 @@ cc-switch-3.16.1/
 .trellis/workspace/
 .trellis/.developer
 .trellis/.runtime/
+.private/
 
 # Editor directories and files
 .vscode/*

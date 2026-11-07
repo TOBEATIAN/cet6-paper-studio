@@ -16,6 +16,40 @@ import { z } from "zod";
 /** Current schema version, persisted in working-paper.json for future migrations. */
 export const PAPER_SCHEMA_VERSION = 1;
 
+export const CET6_DISTRACTOR_ERROR_TYPES = [
+  "张冠李戴",
+  "程度偏移",
+  "程度/范围偏移",
+  "无中生有",
+  "答非所问",
+  "因果倒置",
+  "与原文相悖",
+  "半对半错",
+  "偷换范围",
+] as const;
+
+export const Cet6DistractorErrorTypeSchema = z.enum(
+  CET6_DISTRACTOR_ERROR_TYPES,
+);
+
+export const ReadingCRiskReviewSchema = z.object({
+  /** The old Project_04 warning thresholds that produced this review. */
+  types: z
+    .array(z.enum(["same-sentence", "dual-support"]))
+    .min(1)
+    .max(2),
+  /** Exact option text prevents a stale review surviving an option rewrite. */
+  option: z.string().min(1),
+  correctOption: z.string().min(1),
+  errorType: Cet6DistractorErrorTypeSchema,
+  /** Must be a verbatim phrase from the passage containing the written option. */
+  passageEvidence: z.string().min(8),
+  optionError: z.string().min(4),
+  distinguishingReason: z.string().min(8),
+});
+
+export type ReadingCRiskReview = z.infer<typeof ReadingCRiskReviewSchema>;
+
 const baseFields = {
   id: z.string().min(1),
   /** Markdown question stem (supports KaTeX math, GFM tables, code blocks). */
@@ -53,6 +87,11 @@ const baseFields = {
       type: z.enum(["评论", "研究报告", "科普", "商业", "法律医学"]),
       topic: z.string().min(1),
     }).optional(),
+    /**
+     * Internal reading-C adjudications for strong distractors. These are never
+     * rendered; they prove that a warning was resolved against the passage.
+     */
+    readingCRiskReviews: z.array(ReadingCRiskReviewSchema).max(20).optional(),
     /** Chinese terms with English hints shown inline in the translation task. */
     glossary: z.array(z.object({
       zh: z.string().min(1),

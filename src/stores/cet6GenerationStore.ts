@@ -25,7 +25,20 @@ import {
   arrangeReadingBQuestions,
   createReadingBAnswerPlan,
 } from "../lib/cet/readingBPlan";
-import { createReadingCPlan } from "../lib/cet/readingCPlan";
+import {
+  createReadingCPlan,
+  readingCHistoryEntryFromQuestions,
+  type ReadingCHistoryEntry,
+  type ReadingCPlan,
+} from "../lib/cet/readingCPlan";
+import {
+  applyReadingCRiskDecisions,
+  buildReadingCRiskReviewPrompt,
+  collectReadingCRisks,
+  formatReadingCRisksForRepair,
+  parseReadingCRiskReviewResponse,
+  unresolvedReadingCRiskText,
+} from "../lib/cet/readingCRisk";
 import {
   balanceChoiceAnswers,
   createBalancedAnswerIndexes,
@@ -45,6 +58,7 @@ import {
   buildCet6BlueprintPrompt,
   buildCet6ReadingBPassagePrompt,
   buildCet6ReadingCPassagePrompt,
+  buildCet6ReadingCGroupRepairPrompt,
   buildCet6ReadingCQuestionsPrompt,
   buildCet6RepairMessage,
   buildCet6StagePrompt,
@@ -58,6 +72,7 @@ import { defaultListeningAudioPath } from "../lib/tts/audio";
 
 const MAX_PARSE_ATTEMPTS = 3;
 const MAX_HEAVY_STAGE_ATTEMPTS = 5;
+const MAX_READING_C_RISK_CYCLES = 2;
 const HEAVY_STAGE_MAX_TOKENS = 65_536;
 const DEFAULT_STAGE_DURATION_MS: Record<Cet6PipelinePhase, number> = {
   blueprint: 30_000,
@@ -489,7 +504,7 @@ interface GenerationDiagnosticInput {
   stage: Cet6PipelinePhase;
   attempt: number;
   attemptLimit: number;
-  status: "validation_failed" | "network_error";
+  status: "validation_failed" | "network_error" | "risk_review_failed";
   provider: { baseUrl: string; model: string };
   messages: readonly { role: string; content: string }[];
   startedAt: string;
@@ -925,9 +940,11 @@ async function generateReadingCStage(
   dataDir: string,
   paperId: string,
 ): Promise<Question[]> {
+  const history = await loadRecentReadingCHistory(dataDir, paperId);
   const plan = createReadingCPlan(
     blueprint,
     `${paperId}\n${blueprint.title}\nreading-c`,
+    history,
   );
   const passages: string[] = [];
   for (const passagePlan of plan.passages) {
@@ -1115,6 +1132,51 @@ async function generateReadingCStage(
       });
       continue;
     }
+    const riskResolution = await resolveReadingCRisks(
+      questions,
+      plan,
+      passages,
+      provider,
+      apiKey,
+      dataDir,
+      paperId,
+      attempt,
+    );
+    if (!riskResolution.ok) {
+      lastError = riskResolution.error;
+      questionCorrection = lastError;
+      questionRepairSource = attemptReplies.join(
+        "\n\n--- next passage reply ---\n\n",
+      );
+      await recordGenerationDiagnostic({
+        dataDir,
+        paperId,
+        stage: "reading-c",
+        attempt,
+        attemptLimit: MAX_HEAVY_STAGE_ATTEMPTS,
+        status: "risk_review_failed",
+        provider: { baseUrl: provider.baseUrl, model: provider.model },
+        messages: riskResolution.messages,
+        startedAt: riskResolution.startedAt,
+        startedMs: riskResolution.startedMs,
+        error: riskResolution.error,
+        rawReply: riskResolution.rawReply,
+      });
+      continue;
+    }
+    questions.splice(0, questions.length, ...riskResolution.questions);
+    const postRiskStructural = validateCet6StageQuestions(
+      "reading-c",
+      questions,
+    );
+    if (postRiskStructural.length > 0) {
+      lastError = postRiskStructural.join("\n");
+      questionCorrection = lastError;
+      questionRepairSource = attemptReplies.join(
+        "\n\n--- next passage reply ---\n\n",
+      );
+      continue;
+    }
     const quality = auditCet6Stage("reading-c", questions);
     if (quality.passed) return questions;
     lastError = quality.errors
@@ -1140,6 +1202,241 @@ async function generateReadingCStage(
     });
   }
   throw new GenerationValidationError(lastError);
+}
+
+interface ReadingCRiskResolutionSuccess {
+  ok: true;
+  questions: Question[];
+}
+
+interface ReadingCRiskResolutionFailure {
+  ok: false;
+  error: string;
+  messages: { role: string; content: string }[];
+  startedAt: string;
+  startedMs: number;
+  rawReply: string;
+}
+
+async function resolveReadingCRisks(
+  initialQuestions: Question[],
+  plan: ReadingCPlan,
+  passages: readonly string[],
+  provider: {
+    baseUrl: string;
+    model: string;
+    temperature?: number;
+    maxTokens?: number;
+  },
+  apiKey: string,
+  dataDir: string,
+  paperId: string,
+  generationAttempt: number,
+): Promise<ReadingCRiskResolutionSuccess | ReadingCRiskResolutionFailure> {
+  let questions = initialQuestions;
+  const messages: { role: string; content: string }[] = [];
+  const replies: string[] = [];
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  let lastError = "Reading C strong-distractor review did not complete.";
+
+  for (
+    let cycle = 0;
+    cycle < MAX_READING_C_RISK_CYCLES;
+    cycle += 1
+  ) {
+    const risks = collectReadingCRisks(questions);
+    if (risks.length === 0) return { ok: true, questions };
+
+    const reviewMessages = buildReadingCRiskReviewPrompt(risks);
+    messages.push(...reviewMessages);
+    let reviewReply: string;
+    try {
+      reviewReply = await storage.completeChat({
+        baseUrl: provider.baseUrl,
+        apiKey,
+        model: provider.model,
+        messages: reviewMessages,
+        temperature: 0.1,
+        maxTokens: 8_192,
+      });
+    } catch (error) {
+      await recordGenerationDiagnostic({
+        dataDir,
+        paperId,
+        stage: "reading-c",
+        attempt: generationAttempt,
+        attemptLimit: MAX_HEAVY_STAGE_ATTEMPTS,
+        status: "network_error",
+        provider: { baseUrl: provider.baseUrl, model: provider.model },
+        messages,
+        startedAt,
+        startedMs,
+        error: error instanceof Error ? error.message : String(error),
+        rawReply: replies.join("\n\n--- next reply ---\n\n"),
+      });
+      throw error;
+    }
+    replies.push(reviewReply);
+    const parsed = parseReadingCRiskReviewResponse(reviewReply);
+    if (!parsed.ok) {
+      lastError = `Reading C risk review JSON failed:\n${parsed.error}`;
+      continue;
+    }
+    const applied = applyReadingCRiskDecisions(
+      questions,
+      risks,
+      parsed.reviews,
+    );
+    questions = applied.questions;
+    if (applied.unresolved.length === 0) return { ok: true, questions };
+
+    let repair: Awaited<ReturnType<typeof repairReadingCRiskGroups>>;
+    try {
+      repair = await repairReadingCRiskGroups(
+        questions,
+        plan,
+        passages,
+        applied.unresolved,
+        provider,
+        apiKey,
+        messages,
+        replies,
+      );
+    } catch (error) {
+      await recordGenerationDiagnostic({
+        dataDir,
+        paperId,
+        stage: "reading-c",
+        attempt: generationAttempt,
+        attemptLimit: MAX_HEAVY_STAGE_ATTEMPTS,
+        status: "network_error",
+        provider: { baseUrl: provider.baseUrl, model: provider.model },
+        messages,
+        startedAt,
+        startedMs,
+        error: error instanceof Error ? error.message : String(error),
+        rawReply: replies.join("\n\n--- next reply ---\n\n"),
+      });
+      throw error;
+    }
+    if (!repair.ok) {
+      lastError = [
+        applied.invalidReviews.length
+          ? `Invalid reviews:\n${applied.invalidReviews.join("\n")}`
+          : "",
+        `Unresolved risks:\n${applied.unresolved
+          .map(unresolvedReadingCRiskText)
+          .join("\n\n")}`,
+        repair.error,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      continue;
+    }
+    questions = repair.questions;
+    lastError = [
+      applied.invalidReviews.length
+        ? `Invalid reviews:\n${applied.invalidReviews.join("\n")}`
+        : "",
+      `Unresolved risks:\n${applied.unresolved
+        .map(unresolvedReadingCRiskText)
+        .join("\n\n")}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  return {
+    ok: false,
+    error: lastError,
+    messages,
+    startedAt,
+    startedMs,
+    rawReply: replies.join("\n\n--- next reply ---\n\n"),
+  };
+}
+
+async function repairReadingCRiskGroups(
+  questions: readonly Question[],
+  plan: ReadingCPlan,
+  passages: readonly string[],
+  unresolved: ReturnType<typeof collectReadingCRisks>,
+  provider: {
+    baseUrl: string;
+    model: string;
+    temperature?: number;
+    maxTokens?: number;
+  },
+  apiKey: string,
+  messages: { role: string; content: string }[],
+  replies: string[],
+): Promise<{ ok: true; questions: Question[] } | { ok: false; error: string }> {
+  let current = [...questions];
+  const errors: string[] = [];
+  for (let index = 0; index < plan.passages.length; index += 1) {
+    const firstNumber = index === 0 ? 46 : 51;
+    const lastNumber = firstNumber + 4;
+    const groupRisks = unresolved.filter(
+      (risk) =>
+        risk.questionNumber >= firstNumber && risk.questionNumber <= lastNumber,
+    );
+    if (groupRisks.length === 0) continue;
+    const groupQuestions = current.filter((question) => {
+      const number = question.examSection?.questionNumber ?? 0;
+      return number >= firstNumber && number <= lastNumber;
+    });
+    const repairMessages = buildCet6ReadingCGroupRepairPrompt(
+      plan.passages[index],
+      passages[index],
+      groupQuestions,
+      formatReadingCRisksForRepair(groupRisks),
+    );
+    messages.push(...repairMessages);
+    let reply: string;
+    try {
+      reply = await storage.completeChat({
+        baseUrl: provider.baseUrl,
+        apiKey,
+        model: provider.model,
+        messages: repairMessages,
+        temperature: 0.1,
+        maxTokens: stageMaxTokens("reading-c", provider.maxTokens),
+      });
+    } catch (error) {
+      throw error;
+    }
+    replies.push(reply);
+    const parsed = parseCet6ReadingCQuestions(
+      reply,
+      passages[index],
+      plan.passages[index].index,
+      plan.passages[index].sourceParagraphs,
+      plan.passages[index].questionKinds,
+      plan.passages[index].answerIndexes,
+      plan.passages[index].source,
+    );
+    if (!parsed.ok) {
+      errors.push(
+        `Q${firstNumber}-${lastNumber} targeted repair failed:\n${parsed.error}`,
+      );
+      continue;
+    }
+    current = [
+      ...current.filter((question) => {
+        const number = question.examSection?.questionNumber ?? 0;
+        return number < firstNumber || number > lastNumber;
+      }),
+      ...parsed.value,
+    ].sort(
+      (left, right) =>
+        (left.examSection?.questionNumber ?? 0) -
+        (right.examSection?.questionNumber ?? 0),
+    );
+  }
+  return errors.length === 0
+    ? { ok: true, questions: current }
+    : { ok: false, error: errors.join("\n\n") };
 }
 
 function balanceExistingListeningStages(
@@ -1211,6 +1508,32 @@ function choiceAnswerIndexes(questions: readonly Question[]): number[] {
   return questions.flatMap((question) =>
     question.type === "single-choice" ? [question.correctAnswer] : [],
   );
+}
+
+async function loadRecentReadingCHistory(
+  dataDir: string,
+  currentPaperId: string,
+  limit = 4,
+): Promise<ReadingCHistoryEntry[]> {
+  try {
+    const index = await storage.loadPaperIndex(dataDir);
+    if (!index) return [];
+    const candidates = [...index.papers]
+      .filter((paper) => paper.id !== currentPaperId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    const history: ReadingCHistoryEntry[] = [];
+    for (const candidate of candidates) {
+      if (history.length >= limit) break;
+      const paper = await storage.loadPaper(dataDir, candidate.id);
+      if (!paper) continue;
+      const entry = readingCHistoryEntryFromQuestions(paper.questions);
+      if (entry) history.push(entry);
+    }
+    return history;
+  } catch {
+    // A missing or unreadable library must not block paper generation.
+    return [];
+  }
 }
 
 async function chooseWritingOpeningStyleForPaper(

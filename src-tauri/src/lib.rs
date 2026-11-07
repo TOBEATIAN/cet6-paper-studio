@@ -126,7 +126,6 @@ pub fn run() {
             storage::open_cet6_diagnostic_dir,
             storage::read_audio_file,
             storage::read_image_file,
-            storage::read_default_donation_qr,
             set_window_close_behavior,
             set_generation_running,
             exit_app,

@@ -20,10 +20,14 @@ import {
   quoteCount,
   sentenceList,
   specificInfoCount,
-  supportSentences,
   supportOverlapRatio,
   wordCount,
 } from "./textMetrics";
+import { CET6_DISTRACTOR_ERROR_TYPES } from "../../types/exam";
+import {
+  collectReadingCRisks,
+  isValidReadingCRiskReview,
+} from "../readingCRisk";
 
 export type QualitySeverity = "error" | "warning";
 
@@ -51,18 +55,6 @@ export interface Cet6QualityReport {
   warnings: QualityCheck[];
   passed: boolean;
 }
-
-const DISTRACTOR_TYPES = [
-  "张冠李戴",
-  "程度偏移",
-  "程度/范围偏移",
-  "无中生有",
-  "答非所问",
-  "因果倒置",
-  "与原文相悖",
-  "半对半错",
-  "偷换范围",
-];
 
 function questionsOfKind(paper: ExamPaper, kind: string): Question[] {
   return paper.questions.filter((question) => question.examSection?.kind === kind);
@@ -1126,61 +1118,58 @@ function auditReadingC(
     Math.max(0, ...runs) <= 3 && runs.filter((run) => run >= 3).length <= 2,
     runs.join(","),
   );
-  const sameSentenceRisks: string[] = [];
-  const dualSupportRisks: string[] = [];
-  for (const question of choices) {
-    const group = passages.find((item) => item.questions.includes(question));
-    if (!group) continue;
-    const sentenceSets = supportSentences(group.passage).map(contentWords);
-    const correct = bestSupport(
-      question.options[question.correctAnswer] ?? "",
-      sentenceSets,
+  const readingCRisks = collectReadingCRisks(choices);
+  const resolvedRisks = readingCRisks.filter((risk) => {
+    const question = choices.find((item) => item.id === risk.questionId);
+    return question?.examSection?.readingCRiskReviews?.some((review) =>
+      isValidReadingCRiskReview(risk, review),
     );
-    const distractors = question.options
-      .map((option, index) => ({
-        index,
-        ...bestSupport(option, sentenceSets),
-      }))
-      .filter((entry) => entry.index !== question.correctAnswer);
-    const number = question.examSection?.questionNumber ?? "?";
-    for (const distractor of distractors) {
-      if (
-        distractor.sentenceIndex === correct.sentenceIndex &&
-        distractor.ratio >= 0.6
-      ) {
-        sameSentenceRisks.push(
-          `Q${number}-${correctLetter(distractor.index)}`,
-        );
-      }
-    }
-    const strongestDistractor = distractors.reduce(
-      (best, entry) => (entry.ratio > best.ratio ? entry : best),
-      { index: -1, sentenceIndex: -1, ratio: 0 },
-    );
-    if (
-      strongestDistractor.ratio >= correct.ratio - 0.15 &&
-      strongestDistractor.ratio >= 0.5
-    ) {
-      dualSupportRisks.push(
-        `Q${number}-${correctLetter(strongestDistractor.index)}(${(
-          strongestDistractor.ratio * 100
-        ).toFixed(0)}% vs 键 ${(correct.ratio * 100).toFixed(0)}%)`,
-      );
-    }
-  }
-  add(
-    "reading-c:same-sentence-warning",
-    "同句双解风险（干扰项与正确项共用最强支撑句且重合≥60%）",
-    sameSentenceRisks.length === 0,
-    sameSentenceRisks.join(",") || "无",
-    "warning",
+  });
+  const unresolved = readingCRisks.filter(
+    (risk) => !resolvedRisks.includes(risk),
+  );
+  const sameSentenceUnresolved = unresolved.filter((risk) =>
+    risk.types.includes("same-sentence"),
+  );
+  const dualSupportUnresolved = unresolved.filter((risk) =>
+    risk.types.includes("dual-support"),
+  );
+  const sameSentenceResolved = resolvedRisks.filter((risk) =>
+    risk.types.includes("same-sentence"),
+  );
+  const dualSupportResolved = resolvedRisks.filter((risk) =>
+    risk.types.includes("dual-support"),
   );
   add(
-    "reading-c:dual-support-warning",
-    "双支撑人工回读清单（最强干扰项≥正确项-15%且≥50%）",
-    dualSupportRisks.length === 0,
-    dualSupportRisks.join(",") || "无",
-    "warning",
+    "reading-c:same-sentence-review",
+    "同句双解风险必须完成自动裁决（共用最强句且重合≥60%）",
+    sameSentenceUnresolved.length === 0,
+    [
+      sameSentenceUnresolved.length
+        ? `未解决 ${sameSentenceUnresolved
+            .map((risk) => `Q${risk.questionNumber}-${risk.letter}`)
+            .join(",")}`
+        : "无未解决项",
+      `已复核 ${sameSentenceResolved.length}`,
+    ].join("；"),
+  );
+  add(
+    "reading-c:dual-support-review",
+    "双支撑风险必须完成自动裁决（最强干扰项≥正确项-15%且≥50%）",
+    dualSupportUnresolved.length === 0,
+    [
+      dualSupportUnresolved.length
+        ? `未解决 ${dualSupportUnresolved
+            .map(
+              (risk) =>
+                `Q${risk.questionNumber}-${risk.letter}(${(
+                  risk.distractorOverlap * 100
+                ).toFixed(0)}% vs 键 ${(risk.correctOverlap * 100).toFixed(0)}%)`,
+            )
+            .join(",")}`
+        : "无未解决项",
+      `已复核 ${dualSupportResolved.length}`,
+    ].join("；"),
   );
   add(
     "reading-c:distractor-analysis",
@@ -1195,7 +1184,7 @@ function auditReadingC(
         wrongLetters.every((letter) =>
           new RegExp(`${letter}\\s*[).、]`).test(explanation),
         ) &&
-        DISTRACTOR_TYPES.some((type) => explanation.includes(type))
+        CET6_DISTRACTOR_ERROR_TYPES.some((type) => explanation.includes(type))
       );
     }),
   );
@@ -1286,30 +1275,6 @@ function splitLabelledParagraphs(passage: string): string[] {
 
 function maxSentenceOverlap(answer: string, passage: string): number {
   return supportOverlapRatio(answer, passage);
-}
-
-function bestSupport(
-  option: string,
-  sentenceSets: ReadonlySet<string>[],
-): { sentenceIndex: number; ratio: number } {
-  const optionWords = contentWords(option.replace(/^[A-D]\)\s*/, ""));
-  if (optionWords.size === 0 || sentenceSets.length === 0) {
-    return { sentenceIndex: -1, ratio: 0 };
-  }
-  let sentenceIndex = 0;
-  let ratio = -1;
-  sentenceSets.forEach((sentence, index) => {
-    let shared = 0;
-    for (const word of optionWords) {
-      if (sentence.has(word)) shared += 1;
-    }
-    const candidate = shared / optionWords.size;
-    if (candidate > ratio) {
-      sentenceIndex = index;
-      ratio = candidate;
-    }
-  });
-  return { sentenceIndex, ratio: Math.max(0, ratio) };
 }
 
 function optionLengthStats(

@@ -6,7 +6,7 @@ import { z } from "zod";
  * keyed by the config `id`. config.json holds only non-sensitive fields.
  */
 
-export const CONFIG_SCHEMA_VERSION = 4;
+export const CONFIG_SCHEMA_VERSION = 5;
 
 /** A single OpenAI-compatible model configuration. */
 export const ModelConfigSchema = z.object({
@@ -450,10 +450,6 @@ export const AppSettingsSchema = z.object({
   autoSave: z.boolean().default(true),
   /** Optional voluntary-support page or payment link. */
   supportUrl: z.string().default(""),
-  /** Optional local WeChat donation QR image. */
-  supportQrPath: z.string().default(""),
-  /** Optional local Alipay donation QR image. */
-  supportAlipayQrPath: z.string().default(""),
   /** Message shown in the voluntary-support dialog. */
   supportNote: z
     .string()

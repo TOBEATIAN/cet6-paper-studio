@@ -82,13 +82,6 @@ export async function readImageFile(path: string): Promise<Uint8Array> {
   return new Uint8Array(z.array(z.number().int().min(0).max(255)).parse(raw));
 }
 
-export async function readDefaultDonationQr(
-  kind: "wechat" | "alipay",
-): Promise<Uint8Array> {
-  const raw = await invoke<unknown>("read_default_donation_qr", { kind });
-  return new Uint8Array(z.array(z.number().int().min(0).max(255)).parse(raw));
-}
-
 // ---- App config ----
 
 export async function loadConfig(dataDir: string): Promise<AppConfig | null> {

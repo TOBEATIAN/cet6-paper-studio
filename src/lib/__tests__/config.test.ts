@@ -26,8 +26,6 @@ describe("AppConfigSchema", () => {
     expect(config.settings.paperPreviewZoom).toBe("pct100");
     expect(config.settings.closeBehavior).toBe("quit");
     expect(config.settings.supportUrl).toBe("");
-    expect(config.settings.supportQrPath).toBe("");
-    expect(config.settings.supportAlipayQrPath).toBe("");
   });
 
   it("loads old settings without paper layout presets", () => {
@@ -64,7 +62,7 @@ describe("AppConfigSchema", () => {
       },
     });
 
-    expect(config.version).toBe(4);
+    expect(config.version).toBe(5);
     expect(config.settings.paperFont).toBe("times");
     expect(config.settings.paperMargin).toBe("narrow");
   });

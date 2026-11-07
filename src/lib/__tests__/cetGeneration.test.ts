@@ -385,9 +385,18 @@ describe("CET-6 staged structure", () => {
     const passagePrompt = buildCet6ReadingCPassagePrompt(plan.passages[0])
       .map((message) => message.content)
       .join("\n");
-    expect(passagePrompt).toContain("Exactly 8 natural paragraphs");
+    expect(passagePrompt).toContain(
+      `Exactly ${plan.passages[0].paragraphCount} natural paragraphs`,
+    );
     expect(passagePrompt).toContain("total target is 450 English words");
     expect(passagePrompt).toContain("final paragraph must be one unbroken paragraph of at least 100 words");
+    expect(passagePrompt).toContain(
+      "Primary real CET-6 reference profiles (2022 and later",
+    );
+    expect(passagePrompt).toContain("2026.6-1");
+    expect(passagePrompt).toContain(
+      "never copy their passages or questions",
+    );
 
     const questionPrompt = buildCet6ReadingCQuestionsPrompt(
       blueprint,
@@ -405,5 +414,10 @@ describe("CET-6 staged structure", () => {
     );
     expect(questionPrompt).toContain("Q50=attitude");
     expect(questionPrompt).toContain("must begin: \"What does [a full person name] think of");
+    expect(questionPrompt).toContain("same source");
+    expect(questionPrompt).toContain("15\n  percentage points");
+    expect(questionPrompt).toContain(
+      "one explicit wrong wording",
+    );
   });
 });

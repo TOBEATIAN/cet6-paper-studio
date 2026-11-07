@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Heart,
-  ImagePlus,
   Languages,
   LayoutTemplate,
   MessageSquare,
@@ -13,7 +12,6 @@ import {
   Sparkles,
   Type,
 } from "lucide-react";
-import { open } from "@tauri-apps/plugin-dialog";
 
 import { useConfigStore } from "../../stores/configStore";
 import {
@@ -154,70 +152,6 @@ export function GeneralSection() {
             className="w-full max-w-xs rounded-md border border-input bg-background px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("settings.supportUrl")}
           />
-        </SettingRow>
-        <SettingRow
-          icon={<ImagePlus className="h-4 w-4" />}
-          label={t("settings.supportWechatQr")}
-          description={t("settings.supportWechatQrDescription")}
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="max-w-52 truncate text-xs text-muted-foreground">
-              {s.supportQrPath || t("settings.supportQrEmpty")}
-            </span>
-            <button
-              type="button"
-              onClick={async () => {
-                const selected = await open({
-                  multiple: false,
-                  directory: false,
-                  filters: [
-                    {
-                      name: "Images",
-                      extensions: ["png", "jpg", "jpeg", "webp"],
-                    },
-                  ],
-                });
-                if (typeof selected === "string") {
-                  await updateSettings({ supportQrPath: selected });
-                }
-              }}
-              className="shrink-0 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
-            >
-              {t("settings.chooseImage")}
-            </button>
-          </div>
-        </SettingRow>
-        <SettingRow
-          icon={<ImagePlus className="h-4 w-4" />}
-          label={t("settings.supportAlipayQr")}
-          description={t("settings.supportAlipayQrDescription")}
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="max-w-52 truncate text-xs text-muted-foreground">
-              {s.supportAlipayQrPath || t("settings.supportQrEmpty")}
-            </span>
-            <button
-              type="button"
-              onClick={async () => {
-                const selected = await open({
-                  multiple: false,
-                  directory: false,
-                  filters: [
-                    {
-                      name: "Images",
-                      extensions: ["png", "jpg", "jpeg", "webp"],
-                    },
-                  ],
-                });
-                if (typeof selected === "string") {
-                  await updateSettings({ supportAlipayQrPath: selected });
-                }
-              }}
-              className="shrink-0 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
-            >
-              {t("settings.chooseImage")}
-            </button>
-          </div>
         </SettingRow>
         <SettingRow
           icon={<MessageSquare className="h-4 w-4" />}

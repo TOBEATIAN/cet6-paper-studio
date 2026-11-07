@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Cet6Blueprint } from "../types/cet";
-import { createReadingCPlan } from "../cet/readingCPlan";
+import {
+  createReadingCPlan,
+  readingCHistoryEntryFromQuestions,
+  type ReadingCHistoryEntry,
+} from "../cet/readingCPlan";
+import type { Question } from "../types/exam";
 
 const blueprint: Cet6Blueprint = {
   title: "Reading C plan",
@@ -21,9 +26,13 @@ describe("Reading C generation plan", () => {
     const plan = createReadingCPlan(blueprint, "paper-1");
     const kinds = plan.passages.flatMap((passage) => passage.questionKinds);
 
-    expect(plan.passages.map((passage) => passage.paragraphCount)).toEqual([
-      8, 9,
-    ]);
+    const paragraphCounts = plan.passages.map(
+      (passage) => passage.paragraphCount,
+    );
+    expect(paragraphCounts.every((count) => count >= 6 && count <= 12)).toBe(
+      true,
+    );
+    expect(paragraphCounts[0]).not.toBe(paragraphCounts[1]);
     expect(plan.passages[0].targetParagraphWords.reduce((a, b) => a + b)).toBe(
       450,
     );
@@ -77,5 +86,125 @@ describe("Reading C generation plan", () => {
       return result;
     }, {});
     expect(counts).toEqual({ 0: 2, 1: 3, 2: 3, 3: 2 });
+  });
+
+  it("rotates away from the latest kind pattern and source-type pair", () => {
+    const baseline = createReadingCPlan(blueprint, "history-aware-paper");
+    const history: ReadingCHistoryEntry[] = [
+      {
+        questionKinds: baseline.passages.flatMap(
+          (passage) => passage.questionKinds,
+        ),
+        sourceTypes: [
+          baseline.passages[0].source.type,
+          baseline.passages[1].source.type,
+        ],
+        paragraphCounts: [8, 9],
+      },
+    ];
+    const next = createReadingCPlan(
+      blueprint,
+      "history-aware-paper",
+      history,
+    );
+
+    expect(next.passages.flatMap((passage) => passage.questionKinds)).not.toEqual(
+      history[0].questionKinds,
+    );
+    expect([
+      next.passages[0].source.type,
+      next.passages[1].source.type,
+    ]).not.toEqual(history[0].sourceTypes);
+    expect(next.passages.map((passage) => passage.paragraphCount)).not.toEqual(
+      history[0].paragraphCounts,
+    );
+  });
+
+  it("keeps every source type within two uses across recent papers", () => {
+    const baseline = createReadingCPlan(blueprint, "source-history-paper");
+    const history: ReadingCHistoryEntry[] = [
+      {
+        questionKinds: baseline.passages.flatMap(
+          (passage) => passage.questionKinds,
+        ),
+        sourceTypes: ["研究报告", "评论"],
+        paragraphCounts: [8, 9],
+      },
+      {
+        questionKinds: baseline.passages.flatMap(
+          (passage) => passage.questionKinds,
+        ),
+        sourceTypes: ["研究报告", "评论"],
+        paragraphCounts: [8, 9],
+      },
+      {
+        questionKinds: baseline.passages.flatMap(
+          (passage) => passage.questionKinds,
+        ),
+        sourceTypes: ["科普", "法律医学"],
+        paragraphCounts: [8, 9],
+      },
+      {
+        questionKinds: baseline.passages.flatMap(
+          (passage) => passage.questionKinds,
+        ),
+        sourceTypes: ["科普", "商业"],
+        paragraphCounts: [8, 9],
+      },
+    ];
+    const next = createReadingCPlan(
+      blueprint,
+      "source-history-paper",
+      history,
+    );
+    const counts = new Map<string, number>();
+    for (const type of [
+      ...history.flatMap((entry) => entry.sourceTypes),
+      ...next.sourceTypes,
+    ]) {
+      counts.set(type, (counts.get(type) ?? 0) + 1);
+    }
+
+    expect(Math.max(...counts.values())).toBeLessThanOrEqual(2);
+  });
+
+  it("extracts only aggregate history metadata from an existing paper", () => {
+    const plan = createReadingCPlan(blueprint, "history-extraction");
+    const questions = plan.passages.flatMap((passage) =>
+      passage.questionKinds.map(
+        (kind, offset): Question => ({
+          id: `q${46 + passage.index * 5 + offset}`,
+          type: "single-choice",
+          content: `Question ${offset + 1}`,
+          options: ["one two three", "one two four", "one two five", "one two six"],
+          correctAnswer: passage.answerIndexes[offset],
+          score: 14.2,
+          examSection: {
+            kind: "cet-reading-c",
+            groupId: `passage-${passage.index + 1}`,
+            questionNumber: 46 + passage.index * 5 + offset,
+            questionKind: kind,
+            passage:
+              offset === 0
+                ? Array.from(
+                    { length: passage.paragraphCount },
+                    (_, index) => `Paragraph ${index + 1}`,
+                  ).join("\n")
+                : undefined,
+            source: offset === 0 ? passage.source : undefined,
+          },
+        }),
+      ),
+    );
+    const history = readingCHistoryEntryFromQuestions(questions);
+
+    expect(history).toEqual({
+      questionKinds: plan.passages.flatMap((passage) => passage.questionKinds),
+      sourceTypes: plan.sourceTypes,
+      paragraphCounts: plan.passages.map(
+        (passage) => passage.paragraphCount,
+      ) as [number, number],
+    });
+    expect(JSON.stringify(history)).not.toContain("Paragraph 1");
   });
 });

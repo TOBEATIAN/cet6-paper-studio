@@ -215,6 +215,32 @@ untouched, and the user can run the top-bar generator again to resume. Do not
 wire a staged-generation error card to the ordinary chat `retry()` action,
 because that action replays chat history rather than the CET pipeline.
 
+### Reading C calibration and strong-distractor closure
+
+Reading C combines a versioned 2022+ real-paper profile corpus with lightweight
+continuity metadata from up to four recent local papers. Send only aggregate
+shape data and the current generated passage to the model; never send historical
+exam text, questions, options, answers, or explanations.
+
+Strong-distractor warnings are blocking review states, not ignorable warnings.
+Persist the adjudication under `examSection.readingCRiskReviews` with exact
+current option text, allowed error type, verbatim passage evidence, and a
+stem-specific distinction. Audit must invalidate stale or generic reviews.
+When review says `rewrite`, repair only the affected five-question passage group
+and preserve passage, numbers, fixed answers, paragraph targets, and kinds.
+
+### Voluntary support page
+
+The voluntary-support flow must never bundle or display personal static payment
+codes. The current product uses an external Afdian creator page. Development
+builds use `supportUrl`; release builds obtain
+`VITE_SUPPORT_PAGE_URL`. Store no payment information in the client and keep
+support independent from every feature.
+
+A future direct WeChat Native QR feature requires a business license, merchant
+account, trusted HTTPS backend, callback verification, and the additional
+security work recorded in `docs/PAYMENT_BACKEND.md`.
+
 ---
 
 ## Common Mistakes
