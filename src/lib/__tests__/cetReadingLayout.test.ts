@@ -284,6 +284,39 @@ describe("CET-6 reading block order", () => {
 });
 
 describe("CET-6 listening group order", () => {
+  it("does not reserve paper height for spoken listening stems", () => {
+    const paper: ExamPaper = {
+      version: 1,
+      title: "Listening height",
+      questions: [
+        choice(
+          "listening-height",
+          1,
+          "cet-listening-a",
+          "Why does the woman reject the proposal after comparing the complete budget and staffing plans?",
+          {
+            groupId: "conversation-1",
+            passage: "Woman: The proposal is too expensive.",
+          },
+        ),
+      ],
+    };
+    const printed = buildPaperBlocks(paper, settings, true, false).find(
+      (block) => block.kind === "question",
+    );
+    const answers = buildPaperBlocks(paper, settings, true, true).find(
+      (block) => block.kind === "question",
+    );
+
+    expect(printed?.kind).toBe("question");
+    expect(answers?.kind).toBe("question");
+    if (printed?.kind === "question" && answers?.kind === "question") {
+      expect(answers.estimatedHeightMm).toBeGreaterThan(
+        printed.estimatedHeightMm,
+      );
+    }
+  });
+
   it("labels conversations, passages, and recordings before their own ranges", () => {
     const groups = [
       {

@@ -16,7 +16,7 @@ import { usePracticeStore } from "../../stores/practiceStore";
 import type { ExamPaper } from "../types/exam";
 
 let paper: ExamPaper;
-let view: "teacher" | "student";
+let view: "teacher" | "student" | "answers";
 const appendQuestion = vi.fn();
 const updateSettings = vi.fn();
 let paperSettings = defaultPaperSettings();
@@ -241,7 +241,7 @@ describe("PaperCanvas", () => {
     expect(container.querySelector(".answer-block")).toBeInTheDocument();
   });
 
-  it("hides listening transcripts in practice mode but keeps them in the editor", () => {
+  it("prints only listening options and reveals transcript and stem in answer analysis", () => {
     paper = {
       version: 1,
       title: "六级模拟听力练习",
@@ -259,27 +259,42 @@ describe("PaperCanvas", () => {
             questionNumber: 1,
             passage:
               "This is the private listening transcript that must stay hidden while practicing.",
-            hideOptions: true,
           },
         },
       ],
     };
     usePracticeStore.getState().load("listening-practice");
-    usePracticeStore.getState().setPracticeMode(true);
 
     const { container, rerender } = renderCanvas();
 
     expect(container).not.toHaveTextContent(
       "private listening transcript",
     );
+    expect(container).not.toHaveTextContent("What is the main idea?");
+    expect(
+      visiblePages(container).flatMap((page) =>
+        [...page.querySelectorAll('[data-markdown-source="option"]')],
+      ),
+    ).toHaveLength(4);
+
+    act(() => usePracticeStore.getState().setPracticeMode(true));
+    rerender(
+      <MarkdownFormatProvider>
+        <PaperCanvas />
+      </MarkdownFormatProvider>,
+    );
+    expect(container).not.toHaveTextContent("private listening transcript");
+    expect(container).not.toHaveTextContent("What is the main idea?");
 
     act(() => usePracticeStore.getState().setPracticeMode(false));
+    view = "answers";
     rerender(
       <MarkdownFormatProvider>
         <PaperCanvas />
       </MarkdownFormatProvider>,
     );
     expect(container).toHaveTextContent("private listening transcript");
+    expect(container).toHaveTextContent("What is the main idea?");
   });
 
   it("renders the Reading A passage before one normalized A-O word bank", async () => {

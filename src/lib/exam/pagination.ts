@@ -194,7 +194,13 @@ export function buildPaperBlocks(
           settings,
         );
       }
-      appendQuestionBlocks(blocks, section.questions, settings, includeAnswers);
+      appendQuestionBlocks(
+        blocks,
+        section.questions,
+        settings,
+        includeAnswers,
+        includeAnswerSummary,
+      );
       continue;
     }
 
@@ -231,7 +237,13 @@ export function buildPaperBlocks(
             questionRangeText(numbers),
           );
         }
-        appendQuestionBlocks(blocks, questions, settings, includeAnswers);
+        appendQuestionBlocks(
+          blocks,
+          questions,
+          settings,
+          includeAnswers,
+          includeAnswerSummary,
+        );
       });
       continue;
     }
@@ -249,7 +261,13 @@ export function buildPaperBlocks(
             listeningQuestionRange(listeningKind, numbers) ?? "",
           estimatedHeightMm: 12,
         });
-        appendQuestionBlocks(blocks, questions, settings, includeAnswers);
+        appendQuestionBlocks(
+          blocks,
+          questions,
+          settings,
+          includeAnswers,
+          includeAnswerSummary,
+        );
       });
       continue;
     }
@@ -264,6 +282,7 @@ export function buildPaperBlocks(
           question,
           settings,
           includeAnswers,
+          includeAnswerSummary,
         ),
       });
     });
@@ -277,6 +296,7 @@ function appendQuestionBlocks(
   questions: readonly Question[],
   settings: AppSettings,
   includeAnswers: boolean,
+  analysisView = false,
 ): void {
   questions.forEach((question, index) => {
     blocks.push({
@@ -288,6 +308,7 @@ function appendQuestionBlocks(
         question,
         settings,
         includeAnswers,
+        analysisView,
       ),
     });
   });
@@ -522,9 +543,13 @@ function estimateQuestionHeightMm(
   question: Question,
   settings: AppSettings,
   includeAnswers: boolean,
+  analysisView: boolean,
 ): number {
   const lineHeightMm = fontLineHeightMm(settings);
-  let lines = 2 + estimateTextLines(question.content);
+  const hidePaperStem =
+    !analysisView &&
+    Boolean(question.examSection?.kind?.startsWith("cet-listening-"));
+  let lines = 2 + (hidePaperStem ? 0 : estimateTextLines(question.content));
 
   if ("options" in question && !question.examSection?.hideOptions) {
     const options = Array.isArray(question.options) ? question.options : [];

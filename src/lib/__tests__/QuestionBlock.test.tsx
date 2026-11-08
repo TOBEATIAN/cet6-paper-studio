@@ -65,6 +65,7 @@ describe("QuestionBlock", () => {
       | FillInBlankQuestion
       | EssayQuestion,
     studentView = false,
+    analysisView = false,
   ) {
     return render(
       <MarkdownFormatProvider>
@@ -72,11 +73,54 @@ describe("QuestionBlock", () => {
           question={question}
           index={0}
           studentView={studentView}
+          analysisView={analysisView}
           onEdit={vi.fn()}
         />
       </MarkdownFormatProvider>,
     );
   }
+
+  it("hides the spoken listening stem on paper and shows it in answer analysis", () => {
+    const question: SingleChoiceQuestion = {
+      id: "listening-stem",
+      type: "single-choice",
+      content: "Why does the woman reject the first proposal?",
+      options: [
+        "It exceeds the budget",
+        "It starts too late",
+        "It lacks staff",
+        "It ignores students",
+      ],
+      correctAnswer: 0,
+      score: 7.1,
+      examSection: {
+        kind: "cet-listening-a",
+        groupId: "conversation-1",
+        questionNumber: 1,
+      },
+    };
+
+    const { rerender } = renderQuestion(question);
+    expect(
+      screen.queryByText("Why does the woman reject the first proposal?"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("It exceeds the budget")).toBeInTheDocument();
+
+    rerender(
+      <MarkdownFormatProvider>
+        <QuestionBlock
+          question={question}
+          index={0}
+          studentView={false}
+          analysisView
+          onEdit={vi.fn()}
+        />
+      </MarkdownFormatProvider>,
+    );
+    expect(
+      screen.getByText("Why does the woman reject the first proposal?"),
+    ).toBeInTheDocument();
+  });
 
   it("keeps the question note in normal flow so it cannot cover prompt text", () => {
     usePracticeStore.getState().load("paper-1");

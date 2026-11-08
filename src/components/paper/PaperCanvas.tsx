@@ -879,13 +879,15 @@ function PaperBlock({
       {
         const isCetReading =
           block.question.examSection?.kind?.startsWith("cet-reading-");
+        const isCetListening =
+          block.question.examSection?.kind?.startsWith("cet-listening-") ??
+          false;
       return (
         <div {...attrs}>
           {block.question.examSection?.passage &&
             !isCetReading &&
             !practiceMode &&
-            (!analysisView ||
-              block.question.examSection.kind.startsWith("cet-listening-")) && (
+            (isCetListening ? analysisView : !analysisView) && (
             <div className="paper-question-passage mb-2 text-sm text-foreground">
               <Markdown>{block.question.examSection.passage}</Markdown>
             </div>

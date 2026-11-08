@@ -71,8 +71,13 @@ export function QuestionBlock({
         : [];
   const content =
     choice?.stem ?? stripLeadingQuestionNumber(question.content);
+  const isCetListening =
+    question.examSection?.kind?.startsWith("cet-listening-") ?? false;
+  const showContent = !isCetListening || analysisView;
   const displayedContent =
-    question.examSection?.kind === "cet-translation"
+    !showContent
+      ? ""
+      : question.examSection?.kind === "cet-translation"
       ? applyTranslationGlossary(content, question.examSection.glossary)
       : content;
   const isCet = question.examSection?.kind?.startsWith("cet-") ?? false;
@@ -146,19 +151,23 @@ export function QuestionBlock({
               />
             </span>
           )}
-          <div
-            className="min-w-0"
-            data-markdown-source="content"
-            data-markdown-source-key={`content:${question.id}`}
-            data-markdown-text={displayedContent}
-          >
-            {studentView && question.type === "fill-in-blank" ? (
-              <FillBlankContent question={question} />
-            ) : (
-              <Markdown>{displayedContent}</Markdown>
-            )}
-          </div>
-          <div aria-hidden="true" className="clear-both" />
+          {showContent && (
+            <>
+              <div
+                className="min-w-0"
+                data-markdown-source="content"
+                data-markdown-source-key={`content:${question.id}`}
+                data-markdown-text={displayedContent}
+              >
+                {studentView && question.type === "fill-in-blank" ? (
+                  <FillBlankContent question={question} />
+                ) : (
+                  <Markdown>{displayedContent}</Markdown>
+                )}
+              </div>
+              <div aria-hidden="true" className="clear-both" />
+            </>
+          )}
 
           {choice &&
             choice.options.length > 0 &&
