@@ -35,3 +35,6 @@ Project_04 `命题规范.md` §七明确规定：
 
 - `npm test -- --run`：57 个测试文件 / 391 项通过
 - `npm run typecheck`：通过
+- 安装包：168,450,585 字节，SHA-256
+  `DE0742F08325EDA4D86177FC397C022E8BD7AB6BA9AA5B604F651BB0A3B67AC1`
+- GitHub Release：`v0.3.15`
