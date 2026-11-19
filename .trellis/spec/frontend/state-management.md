@@ -215,6 +215,31 @@ untouched, and the user can run the top-bar generator again to resume. Do not
 wire a staged-generation error card to the ordinary chat `retry()` action,
 because that action replays chat history rather than the CET pipeline.
 
+### Specialty-stage generation
+
+Store `generationScope` in the checkpoint and carry it through prompt selection,
+validation, progress totals, preview metadata and audio synthesis. A specialty
+run must iterate only `selectedStages`, validate each with `auditCet6Stage`, and
+never call the complete 57-question validator. The paper-level score and duration
+are the sum of selected sections, not a fabricated 710-point full paper.
+
+### Real-exam import and answer verification
+
+Keep the editable `ImportedPaperDraft` separate from `ExamPaper` until the user
+confirms it. Answer rows use `stage + groupId + sourceQuestionNumber` as their
+identity because separate sittings may both contain Q46-Q55. Web-found answers
+remain unconfirmed until the user applies them; blanks and source conflicts block
+application. Persist source URLs, evidence and confirmation state in
+`answerProvenance`.
+
+### Imported-exam timer
+
+Pass the intended duration explicitly into `setPracticeMode(active, durationMs)`.
+Do not read `paperStore` from `practiceStore`; this keeps store tests isolated and
+prevents timer policy from being duplicated. Full imported papers use their
+metadata duration, while section imports start untimed and expose an explicit
+timer action.
+
 ### Reading C calibration and strong-distractor closure
 
 Reading C combines a versioned 2022+ real-paper profile corpus with lightweight
@@ -252,3 +277,7 @@ security work recorded in `docs/PAYMENT_BACKEND.md`.
   be applied again. Route through `assistantStore.undoResult(cardId)`.
 - **Calling a store hook inside an action**: use `getState()` instead.
 - **Persisting from the component**: mutate via the store action so autosave runs.
+- **Scoring unverified web answers**: search candidates must be confirmed and
+  conflicts resolved before they enter a paper.
+- **Using only question number as an answer key**: composite Reading C can contain
+  duplicate source numbers; include `groupId`.
