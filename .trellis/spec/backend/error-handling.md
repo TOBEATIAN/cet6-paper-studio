@@ -92,6 +92,27 @@ fn error_codes_serialize_camel_case() {
 
 ## Common Mistakes
 
+### Bundled Python OCR sidecar
+
+The PaddleOCR executable is spawned by Rust, so its failure path must preserve
+the sidecar's structured stdout even when the process exits non-zero. Read both
+stdout and stderr, prefer JSON fields `error` / `traceback`, and truncate only
+after extracting the diagnostic. Do not report stderr alone, because PaddleX
+generally writes its actionable exception to stdout.
+
+Paddle inference on Windows cannot reliably open model files below a non-ASCII
+installation path. Before constructing `PaddleOCR`, stage both model directories
+into an ASCII-safe temporary directory and remove the staging copy after the
+worker exits. Historical short-path lookup is not sufficient because 8.3 names
+may be disabled.
+
+PyInstaller must include PaddleX distribution metadata for the `ocr-core` extras.
+`collect_all` copies package code but not dependency `.dist-info` records, so
+build the sidecar with `copy_metadata` for `paddlex`, `opencv-contrib-python`,
+`pyclipper`, `imagesize`, `pypdfium2`, `python-bidi`, and `shapely`.
+Validate the built executable from a Chinese-named directory; source-mode
+success does not prove the packaged worker can start.
+
 ### Double-render on streaming errors
 
 **Symptom:** two error cards for one failure.
