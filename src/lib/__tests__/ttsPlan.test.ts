@@ -7,6 +7,7 @@ function listeningQuestion(
   number: number,
   passage: string | undefined,
   groupId = "conversation-one",
+  kind = "cet-listening-a",
 ) {
   return {
     id,
@@ -16,7 +17,7 @@ function listeningQuestion(
     correctAnswer: 0,
     score: 7.1,
     examSection: {
-      kind: "cet-listening-a",
+      kind,
       groupId,
       questionNumber: number,
       passage,
@@ -52,8 +53,8 @@ describe("listening speech plan", () => {
       ],
     };
 
-    const plan = buildListeningSpeechPlan(paper, 170);
-    expect(plan.targetWpm).toBe(170);
+    const plan = buildListeningSpeechPlan(paper, 165);
+    expect(plan.targetWpm).toBe(165);
     expect(
       plan.segments.find((segment) => segment.id === "conversation-one-title")
         ?.text,
@@ -84,5 +85,66 @@ describe("listening speech plan", () => {
     expect(() =>
       buildListeningSpeechPlan({ version: 1, title: "Test", questions: [] }, 120),
     ).toThrow("targetWpm must be between 140 and 200");
+  });
+
+  it("alternates B/C material and uses the opposite announcer voice", () => {
+    const paper: ExamPaper = {
+      version: 1,
+      title: "Listening specialty",
+      questions: [
+        listeningQuestion(
+          "b1",
+          9,
+          "Passage one transcript.",
+          "passage-1",
+          "cet-listening-b",
+        ),
+        listeningQuestion(
+          "b2",
+          12,
+          "Passage two transcript.",
+          "passage-2",
+          "cet-listening-b",
+        ),
+        listeningQuestion(
+          "c1",
+          16,
+          "Recording one transcript.",
+          "recording-1",
+          "cet-listening-c",
+        ),
+        listeningQuestion(
+          "c2",
+          19,
+          "Recording two transcript.",
+          "recording-2",
+          "cet-listening-c",
+        ),
+        listeningQuestion(
+          "c3",
+          22,
+          "Recording three transcript.",
+          "recording-3",
+          "cet-listening-c",
+        ),
+      ],
+    };
+    const plan = buildListeningSpeechPlan(paper, 165);
+    const byId = (id: string) =>
+      plan.segments.find((segment) => segment.id === id);
+
+    expect(byId("opening")?.text).toContain("Sections B and C");
+    expect(byId("passage-1-material-1-1")?.role).toBe("female");
+    expect(byId("passage-1-title")?.role).toBe("male");
+    expect(byId("passage-1-announcement")?.role).toBe("male");
+    expect(byId("passage-1-question-9")?.role).toBe("male");
+    expect(byId("passage-2-material-1-1")?.role).toBe("male");
+    expect(byId("passage-2-title")?.role).toBe("female");
+    expect(byId("recording-1-material-1-1")?.role).toBe("female");
+    expect(byId("recording-1-question-16")?.role).toBe("male");
+    expect(byId("recording-2-material-1-1")?.role).toBe("male");
+    expect(byId("recording-2-question-19")?.role).toBe("female");
+    expect(byId("recording-3-material-1-1")?.role).toBe("female");
+    expect(byId("recording-3-question-22")?.role).toBe("male");
   });
 });

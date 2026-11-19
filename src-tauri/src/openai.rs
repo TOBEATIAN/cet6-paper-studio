@@ -325,6 +325,65 @@ pub async fn extract_images_with_ai(
     parse_completion_content(&resp.text().await?)
 }
 
+/// Extract structured exam content from in-memory page images rendered by the
+/// frontend. This keeps PDF pages local until the configured provider request.
+#[tauri::command]
+pub async fn extract_image_data_with_ai(
+    base_url: String,
+    api_key: String,
+    model: String,
+    image_data_urls: Vec<String>,
+    instruction: String,
+    max_tokens: Option<u32>,
+) -> AppResult<String> {
+    if image_data_urls.is_empty() {
+        return Err(AppError::Io("no rendered page images were supplied".into()));
+    }
+    let mut total_bytes = 0usize;
+    let mut content = vec![serde_json::json!({
+        "type": "text",
+        "text": instruction,
+    })];
+    for data_url in image_data_urls {
+        if !data_url.starts_with("data:image/") {
+            return Err(AppError::Io("invalid rendered page image".into()));
+        }
+        total_bytes += data_url.len();
+        if total_bytes > MAX_TOTAL_IMAGE_BYTES * 2 {
+            return Err(AppError::Io(
+                "rendered page images exceed the safety limit".into(),
+            ));
+        }
+        content.push(serde_json::json!({
+            "type": "image_url",
+            "image_url": {
+                "url": data_url,
+                "detail": "original"
+            }
+        }));
+    }
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": content
+        }],
+        "max_tokens": max_tokens.unwrap_or(16_384),
+        "stream": false,
+    });
+    let resp = completion_client()?
+        .post(join(&base_url, "chat/completions"))
+        .bearer_auth(&api_key)
+        .json(&body)
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        return Err(status_error(resp).await);
+    }
+    parse_completion_content(&resp.text().await?)
+}
+
 fn image_mime(path: &str) -> Option<&'static str> {
     let extension = std::path::Path::new(path)
         .extension()?

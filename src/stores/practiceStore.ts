@@ -35,6 +35,9 @@ interface StoredPracticeSession {
   notes?: Record<string, string>;
   highlights?: PracticeHighlight[];
   submitted: boolean;
+  timerStartedAt: string | null;
+  timerDurationMs: number;
+  submittedAt: string | null;
   updatedAt: string;
 }
 
@@ -49,9 +52,12 @@ interface PracticeState {
   interactionMode: PracticeInteractionMode;
   highlightColor: HighlightColorPreset;
   submitted: boolean;
+  timerStartedAt: string | null;
+  timerDurationMs: number;
+  submittedAt: string | null;
   load: (paperId: string | null) => void;
   hydrate: (paperId: string | null) => Promise<void>;
-  setPracticeMode: (active: boolean) => void;
+  setPracticeMode: (active: boolean, timerDurationMs?: number) => void;
   setInteractionMode: (mode: PracticeInteractionMode) => void;
   setHighlightColor: (color: HighlightColorPreset) => void;
   setAnswer: (questionId: string, answer: string) => void;
@@ -131,6 +137,17 @@ function normalizeSession(value: unknown): StoredPracticeSession | null {
         : {},
     highlights,
     submitted: Boolean(candidate.submitted),
+    timerStartedAt:
+      typeof candidate.timerStartedAt === "string"
+        ? candidate.timerStartedAt
+        : null,
+    timerDurationMs:
+      typeof candidate.timerDurationMs === "number" &&
+      Number.isFinite(candidate.timerDurationMs)
+        ? Math.max(0, candidate.timerDurationMs)
+        : 0,
+    submittedAt:
+      typeof candidate.submittedAt === "string" ? candidate.submittedAt : null,
     updatedAt:
       typeof candidate.updatedAt === "string"
         ? candidate.updatedAt
@@ -153,6 +170,9 @@ function applySession(
     highlights: session?.highlights ?? [],
     interactionMode: "answer",
     submitted: session?.submitted ?? false,
+    timerStartedAt: session?.timerStartedAt ?? null,
+    timerDurationMs: session?.timerDurationMs ?? 0,
+    submittedAt: session?.submittedAt ?? null,
   });
 }
 
@@ -190,7 +210,12 @@ export const usePracticeStore = create<PracticeState>((set, get) => {
   ) {
     const paperId = get().paperId;
     if (!paperId) return;
-    writeSession(paperId, next);
+    writeSession(paperId, {
+      ...next,
+      timerStartedAt: get().timerStartedAt,
+      timerDurationMs: get().timerDurationMs,
+      submittedAt: get().submittedAt,
+    });
   }
 
   return {
@@ -204,6 +229,9 @@ export const usePracticeStore = create<PracticeState>((set, get) => {
     interactionMode: "answer",
     highlightColor: "yellow",
     submitted: false,
+    timerStartedAt: null,
+    timerDurationMs: 0,
+    submittedAt: null,
 
     load: (paperId) => {
       if (!paperId) {
@@ -217,6 +245,9 @@ export const usePracticeStore = create<PracticeState>((set, get) => {
           highlights: [],
           interactionMode: "answer",
           submitted: false,
+          timerStartedAt: null,
+          timerDurationMs: 0,
+          submittedAt: null,
         });
         return;
       }
@@ -254,11 +285,28 @@ export const usePracticeStore = create<PracticeState>((set, get) => {
       }
     },
 
-    setPracticeMode: (practiceMode) =>
+    setPracticeMode: (practiceMode, requestedTimerDurationMs = 0) => {
+      if (!practiceMode) {
+        set({ practiceMode: false, interactionMode: "answer" });
+        return;
+      }
+      const timed = requestedTimerDurationMs > 0;
       set({
-        practiceMode,
-        ...(practiceMode ? {} : { interactionMode: "answer" }),
-      }),
+        practiceMode: true,
+        timerDurationMs: timed ? requestedTimerDurationMs : 0,
+        timerStartedAt: timed
+          ? get().timerStartedAt ?? new Date().toISOString()
+          : null,
+      });
+      persist({
+        answers: get().answers,
+        writingAnswer: get().writingAnswer,
+        translationAnswer: get().translationAnswer,
+        notes: get().notes,
+        highlights: get().highlights,
+        submitted: get().submitted,
+      });
+    },
 
     setInteractionMode: (interactionMode) => set({ interactionMode }),
 
@@ -356,7 +404,8 @@ export const usePracticeStore = create<PracticeState>((set, get) => {
     },
 
     submit: () => {
-      set({ submitted: true });
+      const submittedAt = new Date().toISOString();
+      set({ submitted: true, submittedAt });
       persist({
         answers: get().answers,
         writingAnswer: get().writingAnswer,

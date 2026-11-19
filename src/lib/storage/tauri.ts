@@ -422,6 +422,18 @@ export async function extractImagesWithAi(args: {
   return z.string().min(1).parse(raw);
 }
 
+export async function extractImageDataWithAi(args: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  imageDataUrls: string[];
+  instruction: string;
+  maxTokens?: number;
+}): Promise<string> {
+  const raw = await invoke<unknown>("extract_image_data_with_ai", args);
+  return z.string().min(1).parse(raw);
+}
+
 export async function testTtsConnection(args: {
   provider: "aliyun" | "mimo" | "siliconflow" | "kitten" | "openai-compatible";
   baseUrl: string;

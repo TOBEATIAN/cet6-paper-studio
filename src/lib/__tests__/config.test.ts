@@ -253,16 +253,34 @@ describe("AppConfigSchema", () => {
     });
   });
 
-  it("defaults listening audio to Aliyun at 170 wpm with exam-like voices", () => {
+  it("defaults listening audio to Aliyun at 165 wpm with exam-like voices", () => {
     const tts = AppConfigSchema.parse({}).settings.tts;
     expect(tts.activeProvider).toBe("aliyun");
-    expect(tts.targetWpm).toBe(170);
+    expect(tts.targetWpm).toBe(165);
     expect(tts.aliyunFemaleVoice).toBe("Jennifer");
     expect(tts.aliyunMaleVoice).toBe("Neil");
     expect(tts.mimoFemaleVoice).toBe("Chloe");
     expect(tts.mimoMaleVoice).toBe("Milo");
     expect(tts.kittenFemaleVoice).toBe("Rosie");
     expect(tts.kittenMaleVoice).toBe("Bruno");
+  });
+
+  it("migrates old 170/175 defaults without touching custom rates", () => {
+    expect(
+      AppConfigSchema.parse({
+        settings: { tts: { targetWpm: 170 } },
+      }).settings.tts.targetWpm,
+    ).toBe(165);
+    expect(
+      AppConfigSchema.parse({
+        settings: { tts: { targetWpm: 175 } },
+      }).settings.tts.targetWpm,
+    ).toBe(165);
+    expect(
+      AppConfigSchema.parse({
+        settings: { tts: { targetWpm: 180 } },
+      }).settings.tts.targetWpm,
+    ).toBe(180);
   });
 
   it("limits the selectable speech rate to the training range", () => {

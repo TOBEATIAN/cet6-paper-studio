@@ -4,6 +4,7 @@ import {
   Cet6BlueprintSchema,
   type Cet6Blueprint,
   type Cet6ContentStage,
+  type Cet6GenerationScope,
 } from "../types/cet";
 import { extractJson } from "../api/extractJson";
 import { validateQuestions } from "../api/validateQuestions";
@@ -452,20 +453,49 @@ export function normalizeCet6StageQuestions(
 export function buildCet6Paper(
   questionsByStage: Partial<Record<Cet6ContentStage, readonly Question[]>>,
   generatedAt = new Date(),
+  scope?: Cet6GenerationScope,
 ): ExamPaper {
-  const questions = Object.keys(CET6_STAGE_SPECS).flatMap((key) => {
+  const selected =
+    scope?.mode === "specialty" && scope.selectedStages.length > 0
+      ? scope.selectedStages
+      : (Object.keys(CET6_STAGE_SPECS) as Cet6ContentStage[]);
+  const selectedSet = new Set(selected);
+  const questions = (Object.keys(CET6_STAGE_SPECS) as Cet6ContentStage[]).flatMap((key) => {
     const stage = key as Cet6ContentStage;
     const questions = questionsByStage[stage];
-    return questions ? normalizeCet6StageQuestions(stage, questions) : [];
+    return questions && selectedSet.has(stage)
+      ? normalizeCet6StageQuestions(stage, questions)
+      : [];
   });
+  const totalScore =
+    Math.round(
+      questions.reduce((sum, question) => sum + question.score, 0) * 100,
+    ) / 100;
+  const duration =
+    (selectedSet.has("writing") ? 30 : 0) +
+    (selected.some((stage) => stage.startsWith("listening")) ? 30 : 0) +
+    (selected.some((stage) => stage.startsWith("reading")) ? 40 : 0) +
+    (selectedSet.has("translation") ? 30 : 0);
   return {
     version: 1,
     title: createCet6PaperTitle(generatedAt),
     metadata: {
       subject: "大学英语六级",
-      duration: 130,
-      totalScore: 710,
+      duration: Math.max(1, duration),
+      totalScore: Math.max(1, totalScore),
     },
+    practiceScope:
+      scope?.mode === "specialty"
+        ? {
+            mode: "specialty",
+            selectedStages: selected,
+            focusTopic: scope.focusTopic,
+            sourceFileName: "",
+            examDate: "",
+            setLabel: "",
+            listeningAudioPath: "",
+          }
+        : undefined,
     questions,
   };
 }

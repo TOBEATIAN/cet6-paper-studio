@@ -13,6 +13,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { CET6_PIPELINE_PHASES } from "../../lib/types/cet";
 import { errorMessageKey } from "../../lib/api/errorMessages";
 import { useCet6GenerationStore } from "../../stores/cet6GenerationStore";
+import { stageLabelKey } from "../../lib/i18n/stageLabel";
 
 /** Progress and resumability feedback for the staged CET-6 generator. */
 export function Cet6GenerationProgress() {
@@ -30,6 +31,7 @@ export function Cet6GenerationProgress() {
     (s) => s.generationStartedAt,
   );
   const estimatedTotalMs = useCet6GenerationStore((s) => s.estimatedTotalMs);
+  const scope = useCet6GenerationStore((s) => s.scope);
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
@@ -41,16 +43,25 @@ export function Cet6GenerationProgress() {
 
   if (status === "idle" && completedPhases.length === 0) return null;
 
-  const total = CET6_PIPELINE_PHASES.length;
+  const total =
+    scope?.mode === "specialty"
+      ? scope.selectedStages.length + 1
+      : CET6_PIPELINE_PHASES.length;
   const completed = completedPhases.length;
   const phase =
     currentPhase ??
     errorPhase ??
     completedPhases[completedPhases.length - 1];
+  const phaseLabel = (value: typeof phase) =>
+    value
+      ? value === "blueprint"
+        ? t("cet6.phase.blueprint")
+        : t(stageLabelKey(value))
+      : "";
   const diagnosticText = [
     errorCode ? `错误码：${errorCode}` : "",
     errorPhase
-      ? `失败阶段：${t(`cet6.phase.${errorPhase}`)}`
+      ? `失败阶段：${phaseLabel(errorPhase)}`
       : "",
     errorDetail ?? "",
   ]
@@ -107,7 +118,7 @@ export function Cet6GenerationProgress() {
             <p className="mt-1 text-xs text-muted-foreground">
               {status === "running"
                 ? t("cet6.currentPhase", {
-                    phase: t(`cet6.phase.${phase}`),
+                    phase: phaseLabel(phase),
                   })
                 : status === "error"
                   ? t("cet6.resumeHint", { count: completed })
@@ -151,7 +162,7 @@ export function Cet6GenerationProgress() {
               {errorPhase && (
                 <p className="mt-1 text-muted-foreground">
                   {t("cet6.failedPhase", {
-                    phase: t(`cet6.phase.${errorPhase}`),
+                    phase: phaseLabel(errorPhase),
                   })}
                 </p>
               )}

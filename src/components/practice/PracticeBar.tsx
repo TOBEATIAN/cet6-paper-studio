@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import {
   CheckCheck,
+  Clock3,
   ClipboardPenLine,
   RotateCcw,
   X,
@@ -25,6 +27,27 @@ export function PracticeBar({ onOpenReview }: { onOpenReview: () => void }) {
   const setPracticeMode = usePracticeStore((state) => state.setPracticeMode);
   const submit = usePracticeStore((state) => state.submit);
   const clearAnswers = usePracticeStore((state) => state.clearAnswers);
+  const timerStartedAt = usePracticeStore((state) => state.timerStartedAt);
+  const timerDurationMs = usePracticeStore((state) => state.timerDurationMs);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!practiceMode || !timerStartedAt || timerDurationMs <= 0 || submitted) {
+      return;
+    }
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [practiceMode, submitted, timerDurationMs, timerStartedAt]);
+
+  const remainingMs =
+    timerStartedAt && timerDurationMs > 0
+      ? Math.max(0, timerDurationMs - (now - Date.parse(timerStartedAt)))
+      : null;
+
+  useEffect(() => {
+    if (remainingMs !== 0 || submitted) return;
+    submit();
+  }, [remainingMs, submit, submitted]);
 
   if (!practiceMode) return null;
 
@@ -59,6 +82,38 @@ export function PracticeBar({ onOpenReview }: { onOpenReview: () => void }) {
           total: objective.length,
         })}
       </span>
+      {remainingMs != null && !submitted && (
+        <span
+          className={
+            remainingMs <= 5 * 60_000
+              ? "flex items-center gap-1 text-xs font-semibold text-destructive"
+              : "flex items-center gap-1 text-xs font-medium text-foreground"
+          }
+        >
+          <Clock3 className="h-3.5 w-3.5" />
+          {t("practice.remainingTime", {
+            time: formatTimer(remainingMs),
+          })}
+        </span>
+      )}
+      {remainingMs == null &&
+        !submitted &&
+        paper.practiceScope?.mode === "imported" &&
+        (paper.metadata?.duration ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={() =>
+              setPracticeMode(
+                true,
+                (paper.metadata?.duration ?? 0) * 60_000,
+              )
+            }
+            className={secondaryBtn}
+          >
+            <Clock3 className="h-4 w-4" />
+            {t("practice.startTimer")}
+          </button>
+        )}
       <span className="text-xs text-muted-foreground">
         {t("practice.writingProgress", {
           count: wordCount(writingAnswer),
@@ -120,4 +175,14 @@ export function PracticeBar({ onOpenReview }: { onOpenReview: () => void }) {
       </button>
     </div>
   );
+}
+
+function formatTimer(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(durationMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : `${minutes}:${String(seconds).padStart(2, "0")}`;
 }

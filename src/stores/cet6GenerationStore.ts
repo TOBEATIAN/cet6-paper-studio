@@ -6,6 +6,7 @@ import {
   type Cet6Blueprint,
   type Cet6ContentStage,
   type Cet6GenerationCheckpoint,
+  type Cet6GenerationScope,
   type Cet6PipelinePhase,
   type Cet6QuestionsByStage,
 } from "../lib/types/cet";
@@ -56,6 +57,7 @@ import {
 } from "../lib/cet/quality/audit";
 import {
   buildCet6BlueprintPrompt,
+  buildCet6SpecialtyBlueprintPrompt,
   buildCet6ReadingBPassagePrompt,
   buildCet6ReadingCPassagePrompt,
   buildCet6ReadingCGroupRepairPrompt,
@@ -96,7 +98,8 @@ interface Cet6GenerationState {
   qualityReport: Cet6QualityReport | null;
   generationStartedAt: string | null;
   estimatedTotalMs: number;
-  start: () => Promise<void>;
+  scope: Cet6GenerationScope;
+  start: (scope?: Cet6GenerationScope) => Promise<void>;
   load: (paperId: string) => Promise<void>;
   openDiagnostics: () => Promise<void>;
   resetCheckpoint: () => Promise<void>;
@@ -113,6 +116,7 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
   qualityReport: null,
   generationStartedAt: null,
   estimatedTotalMs: 0,
+  scope: { mode: "full", selectedStages: [], focusTopic: "" },
 
   load: async (paperId) => {
     const dataDir = useConfigStore.getState().dataDir;
@@ -131,6 +135,11 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
         estimatedTotalMs: checkpoint
           ? estimateCheckpointDurationMs(checkpoint)
           : 0,
+        scope: checkpoint?.generationScope ?? {
+          mode: "full",
+          selectedStages: [],
+          focusTopic: "",
+        },
       });
     } catch {
       set({
@@ -143,6 +152,7 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
         qualityReport: null,
         generationStartedAt: null,
         estimatedTotalMs: 0,
+        scope: { mode: "full", selectedStages: [], focusTopic: "" },
       });
     }
   },
@@ -154,8 +164,34 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
     await storage.openCet6DiagnosticDir(dataDir, paperId);
   },
 
-  start: async () => {
+  start: async (requestedScope) => {
     if (get().status === "running") return;
+
+    const scope: Cet6GenerationScope =
+      requestedScope?.mode === "specialty"
+        ? {
+            mode: "specialty",
+            selectedStages: [...new Set(requestedScope.selectedStages)],
+            focusTopic: requestedScope.focusTopic.trim(),
+          }
+        : { mode: "full", selectedStages: [], focusTopic: "" };
+    if (scope.mode === "specialty" && scope.selectedStages.length === 0) {
+      set({
+        status: "error",
+        currentPhase: null,
+        errorCode: "unknown",
+        errorDetail: "Select at least one specialty stage.",
+        errorPhase: null,
+        scope,
+      });
+      return;
+    }
+    const selectedStages =
+      scope.mode === "specialty"
+        ? CET6_CONTENT_STAGES.filter((stage) =>
+            scope.selectedStages.includes(stage),
+          )
+        : [...CET6_CONTENT_STAGES];
 
     const configState = useConfigStore.getState();
     const provider = configState.activeConfig();
@@ -200,6 +236,7 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
       qualityReport: null,
       generationStartedAt: null,
       estimatedTotalMs: 0,
+      scope,
     });
     void storage.setGenerationRunning(true).catch(() => undefined);
 
@@ -212,6 +249,7 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
           paperId,
           providerName: provider.name,
           model: provider.model,
+          generationScope: scope,
           questionsByStage: {},
           generationStartedAt: new Date().toISOString(),
           stageDurationsMs: {},
@@ -221,6 +259,7 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
         ...checkpoint,
         providerName: provider.name,
         model: provider.model,
+        generationScope: scope,
         generationStartedAt:
           checkpoint.generationStartedAt ?? new Date().toISOString(),
       };
@@ -245,6 +284,7 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
           apiKey,
           dataDir,
           paperId,
+          scope,
         );
         checkpoint = {
           ...checkpoint,
@@ -263,7 +303,7 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
         currentPhase: "writing",
       });
 
-      for (const stage of CET6_CONTENT_STAGES) {
+      for (const stage of selectedStages) {
         if (checkpoint.questionsByStage[stage]?.length) continue;
         set({ currentPhase: stage });
         const stageStartedAt = Date.now();
@@ -374,26 +414,36 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
           completedPhases: completedPhases(checkpoint),
           estimatedTotalMs: estimateCheckpointDurationMs(checkpoint),
         });
-        if (stage === "listening-c") {
-          const listeningPaper = buildCet6Paper(checkpoint.questionsByStage);
-          void useTtsAudioStore.getState().start(
-            listeningPaper,
-            defaultListeningAudioPath(
-              dataDir,
-              listeningPaper.title,
-              paperId,
-            ),
-            { automatic: true },
-          );
-        }
       }
 
-      const paper = buildCet6Paper(checkpoint.questionsByStage);
-      const errors = validateCet6Paper(paper);
+      const paper = buildCet6Paper(
+        checkpoint.questionsByStage,
+        new Date(),
+        scope,
+      );
+      const errors =
+        scope.mode === "specialty"
+          ? selectedStages.flatMap((stage) =>
+              validateCet6StageQuestions(
+                stage,
+                checkpoint.questionsByStage[stage] ?? [],
+              ),
+            )
+          : validateCet6Paper(paper);
       if (errors.length > 0) {
         throw new GenerationValidationError(errors.join("\n"));
       }
-      const qualityReport = auditCet6Paper(paper);
+      const qualityReport =
+        scope.mode === "specialty"
+          ? combineStageReports(
+              selectedStages.map((stage) =>
+                auditCet6Stage(
+                  stage,
+                  checkpoint.questionsByStage[stage] ?? [],
+                ),
+              ),
+            )
+          : auditCet6Paper(paper);
       if (!qualityReport.passed) {
         const stagesToRegenerate = qualityRegenerationStages(qualityReport);
         if (stagesToRegenerate.length > 0) {
@@ -418,10 +468,17 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
       }
 
       useAssistantStore.getState().previewGeneratedPaper(paper);
+      if (selectedStages.some((stage) => stage.startsWith("listening"))) {
+        void useTtsAudioStore.getState().start(
+          paper,
+          defaultListeningAudioPath(dataDir, paper.title, paperId),
+          { automatic: true },
+        );
+      }
       set({
         status: "completed",
         currentPhase: null,
-        completedPhases: [...CET6_PIPELINE_PHASES],
+        completedPhases: ["blueprint", ...selectedStages],
         qualityReport,
         estimatedTotalMs: Math.max(
           estimateCheckpointDurationMs(checkpoint),
@@ -466,6 +523,7 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
       qualityReport: null,
       generationStartedAt: null,
       estimatedTotalMs: 0,
+      scope: { mode: "full", selectedStages: [], focusTopic: "" },
     });
   },
 
@@ -491,11 +549,59 @@ async function saveCheckpoint(
 function estimateCheckpointDurationMs(
   checkpoint: Cet6GenerationCheckpoint,
 ): number {
-  return CET6_PIPELINE_PHASES.reduce(
+  const scope = checkpoint.generationScope;
+  const phases =
+    scope?.mode === "specialty"
+      ? (["blueprint", ...scope.selectedStages] as Cet6PipelinePhase[])
+      : [...CET6_PIPELINE_PHASES];
+  return phases.reduce(
     (sum, phase) =>
       sum + (checkpoint.stageDurationsMs[phase] ?? DEFAULT_STAGE_DURATION_MS[phase]),
     0,
   );
+}
+
+function combineStageReports(
+  reports: readonly Cet6QualityReport[],
+): Cet6QualityReport {
+  const checks = reports.flatMap((report) => report.checks);
+  const errors = checks.filter(
+    (check) => !check.passed && check.severity === "error",
+  );
+  const warnings = checks.filter(
+    (check) => !check.passed && check.severity === "warning",
+  );
+  return {
+    checks,
+    metrics: {
+      listeningTranscriptWords: reports.flatMap(
+        (report) => report.metrics.listeningTranscriptWords,
+      ),
+      readingBOverlapMedian: Math.max(
+        0,
+        ...reports.map((report) => report.metrics.readingBOverlapMedian),
+      ),
+      readingCParagraphSigma: reports.flatMap(
+        (report) => report.metrics.readingCParagraphSigma,
+      ),
+      readingCLongWordPercent: reports.flatMap(
+        (report) => report.metrics.readingCLongWordPercent,
+      ),
+      translationChineseCharacters: Math.max(
+        0,
+        ...reports.map(
+          (report) => report.metrics.translationChineseCharacters,
+        ),
+      ),
+      writingGivenSentenceWords: Math.max(
+        0,
+        ...reports.map((report) => report.metrics.writingGivenSentenceWords),
+      ),
+    },
+    errors,
+    warnings,
+    passed: errors.length === 0,
+  };
 }
 
 interface GenerationDiagnosticInput {
@@ -556,6 +662,7 @@ async function generateBlueprint(
   apiKey: string,
   dataDir: string,
   paperId: string,
+  scope: Cet6GenerationScope,
 ): Promise<Cet6Blueprint> {
   let correction: string | undefined;
   let repairSource: string | undefined;
@@ -563,7 +670,12 @@ async function generateBlueprint(
 
   for (let attempt = 0; attempt < MAX_PARSE_ATTEMPTS; attempt += 1) {
     const baseMessages = [
-      ...buildCet6BlueprintPrompt(),
+      ...(scope.mode === "specialty"
+        ? buildCet6SpecialtyBlueprintPrompt(
+            scope.selectedStages,
+            scope.focusTopic,
+          )
+        : buildCet6BlueprintPrompt()),
       ...(correction
         ? [
             {

@@ -157,7 +157,7 @@ describe("listening audio export helpers", () => {
       apiKey: "",
       model: "kitten-tts-nano-0.8-int8",
       voice: "Rosie",
-      speed: 1,
+    speed: 165 / 170,
     });
   });
 
@@ -172,7 +172,7 @@ describe("listening audio export helpers", () => {
       apiKey: "mimo-key",
       model: "mimo-v2.5-tts",
       voice: "Chloe",
-      speed: 1,
+    speed: 165 / 170,
     });
   });
 
@@ -187,7 +187,7 @@ describe("listening audio export helpers", () => {
       apiKey: "sf-key",
       model: "FunAudioLLM/CosyVoice2-0.5B",
       voice: "FunAudioLLM/CosyVoice2-0.5B:anna",
-      speed: 1,
+    speed: 165 / 170,
     });
   });
 });

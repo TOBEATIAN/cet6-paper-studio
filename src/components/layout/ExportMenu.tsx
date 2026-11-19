@@ -88,13 +88,17 @@ export function ExportMenu({
   const reportAudioError = useTtsAudioStore((s) => s.reportError);
   const clearAudioJob = useTtsAudioStore((s) => s.clear);
   const [audioWpm, setAudioWpm] = useState(ttsSettings.targetWpm);
-  const expectedAudioPath = dataDir
-    ? defaultListeningAudioPath(
-        dataDir,
-        paper.title,
-        activePaperId ?? undefined,
-      )
-    : null;
+  const expectedAudioPath =
+    paper.practiceScope?.mode === "imported" &&
+    paper.practiceScope.listeningAudioPath.trim()
+      ? paper.practiceScope.listeningAudioPath
+      : dataDir
+        ? defaultListeningAudioPath(
+            dataDir,
+            paper.title,
+            activePaperId ?? undefined,
+          )
+        : null;
 
   const showHeader = useExportStore((s) => s.showHeader);
   const fields = useExportStore((s) => s.fields);

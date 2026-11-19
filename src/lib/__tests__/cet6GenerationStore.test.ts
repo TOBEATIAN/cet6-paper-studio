@@ -436,6 +436,50 @@ describe("cet6GenerationStore", () => {
     ).toBe(false);
   });
 
+  it("generates only selected specialty stages and persists the scope", async () => {
+    await useCet6GenerationStore.getState().start({
+      mode: "specialty",
+      selectedStages: ["listening-b", "reading-a"],
+      focusTopic: "campus technology",
+    });
+
+    expect(useCet6GenerationStore.getState().status).toBe("completed");
+    expect(useCet6GenerationStore.getState().completedPhases).toEqual([
+      "blueprint",
+      "listening-b",
+      "reading-a",
+    ]);
+    const completeChatCalls = tauriMocks.invoke.mock.calls.filter(
+      ([command]) => command === "complete_chat",
+    );
+    expect(completeChatCalls).toHaveLength(3);
+    const result = useAssistantStore
+      .getState()
+      .messages.find(
+        (message): message is Extract<ChatMessage, { kind: "result" }> =>
+          message.kind === "result",
+      );
+    const append = result?.operations.find(
+      (operation) => operation.type === "appendQuestions",
+    );
+    expect(
+      append?.type === "appendQuestions" ? append.questions : [],
+    ).toHaveLength(17);
+    expect(
+      savedCheckpoints.some(
+        (checkpoint) =>
+          typeof checkpoint === "object" &&
+          checkpoint !== null &&
+          (
+            checkpoint as {
+              generationScope?: { selectedStages?: string[] };
+            }
+          ).generationScope?.selectedStages?.join(",") ===
+            "listening-b,reading-a",
+      ),
+    ).toBe(true);
+  });
+
   it("persists the failed stage and visible quality details", async () => {
     tauriMocks.failReadingBQuality = true;
 

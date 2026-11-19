@@ -73,11 +73,21 @@ export function buildListeningSpeechPlan(
     throw new Error("targetWpm must be between 140 and 200");
   }
 
+  const listeningKinds = (Object.keys(DIRECTIONS) as ListeningKind[]).filter(
+    (kind) => collectGroups(paper, kind).length > 0,
+  );
+  const openingSection =
+    listeningKinds.length === 3
+      ? "Section A"
+      : listeningKinds.length === 2 &&
+          listeningKinds[0] !== "cet-listening-a"
+        ? `Sections ${sectionLetter(listeningKinds[0])} and ${sectionLetter(listeningKinds[1])}`
+        : `Section ${sectionLetter(listeningKinds[0] ?? "cet-listening-a")}`;
   const segments: SpeechSegment[] = [
     {
       id: "opening",
       role: "narrator",
-      text: "College English Test, Band 6, Part Two, Listening Comprehension, Section A.",
+      text: `College English Test, Band 6, Part Two, Listening Comprehension, ${openingSection}.`,
       pauseAfterMs: 600,
       section: "opening",
     },
@@ -99,14 +109,19 @@ export function buildListeningSpeechPlan(
         GROUP_TITLES[kind][groupIndex] ??
         group.title ??
         `${kind} ${groupIndex + 1}`;
+      const materialRole = listeningMaterialRole(kind, groupIndex);
+      const announcerRole =
+        kind === "cet-listening-a"
+          ? "narrator"
+          : oppositeRole(materialRole);
       const turns =
         kind === "cet-listening-a"
           ? parseConversationTurns(group.passage)
-          : [{ role: "narrator" as SpeechRole, text: group.passage }];
+          : [{ role: materialRole, text: group.passage }];
 
       segments.push({
         id: `${group.key}-title`,
-        role: "narrator",
+        role: announcerRole,
         text: title,
         pauseAfterMs: GROUP_TITLE_PAUSE_MS,
         section: kind,
@@ -141,7 +156,7 @@ export function buildListeningSpeechPlan(
         .filter((number): number is number => number != null);
       segments.push({
         id: `${group.key}-announcement`,
-        role: "narrator",
+        role: announcerRole,
         text: `Questions ${numbers[0]} to ${numbers[numbers.length - 1]} are based on the ${NOUNS[kind]} you have just heard.`,
         pauseAfterMs: ANNOUNCEMENT_TO_QUESTION_MS,
         section: kind,
@@ -152,7 +167,7 @@ export function buildListeningSpeechPlan(
         if (number == null) return;
         segments.push({
           id: `${group.key}-question-${number}`,
-          role: "narrator",
+          role: announcerRole,
           text: `Question ${number}. ${prepareSpeechForTts(
             normalizeQuestionStem(question.content),
           )}`,
@@ -251,4 +266,23 @@ function collectGroups(paper: ExamPaper, kind: ListeningKind): ListeningGroup[] 
 
 function normalizeQuestionStem(stem: string): string {
   return stem.replace(/^\s*Q?\d+\s*[.、:：]\s*/i, "").trim();
+}
+
+function listeningMaterialRole(
+  kind: ListeningKind,
+  groupIndex: number,
+): Exclude<SpeechRole, "narrator"> {
+  if (kind === "cet-listening-a") return "female";
+  const alternate = kind === "cet-listening-b" ? groupIndex : groupIndex + 2;
+  return alternate % 2 === 0 ? "female" : "male";
+}
+
+function oppositeRole(
+  role: Exclude<SpeechRole, "narrator">,
+): Exclude<SpeechRole, "narrator"> {
+  return role === "female" ? "male" : "female";
+}
+
+function sectionLetter(kind: ListeningKind): "A" | "B" | "C" {
+  return kind.slice(-1).toUpperCase() as "A" | "B" | "C";
 }

@@ -48,6 +48,23 @@ describe("practice store", () => {
     });
   });
 
+  it("persists and restores an imported-paper timer", () => {
+    usePracticeStore.getState().load("timed-paper");
+    usePracticeStore
+      .getState()
+      .setPracticeMode(true, 130 * 60_000);
+    expect(usePracticeStore.getState().timerDurationMs).toBe(130 * 60_000);
+    expect(usePracticeStore.getState().timerStartedAt).toBeTruthy();
+
+    const startedAt = usePracticeStore.getState().timerStartedAt;
+    usePracticeStore.getState().load("timed-paper");
+    expect(usePracticeStore.getState().timerDurationMs).toBe(130 * 60_000);
+    expect(usePracticeStore.getState().timerStartedAt).toBe(startedAt);
+
+    usePracticeStore.getState().submit();
+    expect(usePracticeStore.getState().submittedAt).toBeTruthy();
+  });
+
   it("keeps the submitted state when an answer is corrected after submission", () => {
     usePracticeStore.getState().load("paper-submitted");
     usePracticeStore.getState().setAnswer("q1", "B");

@@ -23,6 +23,14 @@ export const Cet6PipelinePhaseSchema = z.enum(CET6_PIPELINE_PHASES);
 export type Cet6ContentStage = z.infer<typeof Cet6ContentStageSchema>;
 export type Cet6PipelinePhase = z.infer<typeof Cet6PipelinePhaseSchema>;
 
+export const Cet6GenerationScopeSchema = z.object({
+  mode: z.enum(["full", "specialty"]).default("full"),
+  selectedStages: z.array(Cet6ContentStageSchema).default([]),
+  focusTopic: z.string().default(""),
+});
+
+export type Cet6GenerationScope = z.infer<typeof Cet6GenerationScopeSchema>;
+
 export const Cet6BlueprintSchema = z.object({
   title: z.string().min(1),
   topics: z.object({
@@ -77,6 +85,7 @@ export const Cet6GenerationCheckpointSchema = z.object({
   paperId: z.string().min(1),
   providerName: z.string().min(1),
   model: z.string().min(1),
+  generationScope: Cet6GenerationScopeSchema.optional(),
   blueprint: Cet6BlueprintSchema.optional(),
   readingBPassage: z.string().min(1).optional(),
   questionsByStage: Cet6QuestionsByStageSchema.default({}),

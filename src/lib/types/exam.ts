@@ -50,6 +50,30 @@ export const ReadingCRiskReviewSchema = z.object({
 
 export type ReadingCRiskReview = z.infer<typeof ReadingCRiskReviewSchema>;
 
+export const AnswerProvenanceSchema = z.object({
+  status: z.enum([
+    "provided",
+    "official",
+    "consensus",
+    "single-source",
+    "conflict",
+    "missing",
+    "manual",
+  ]),
+  sources: z
+    .array(
+      z.object({
+        title: z.string().default(""),
+        url: z.string().url(),
+        evidence: z.string().default(""),
+      }),
+    )
+    .default([]),
+  confirmed: z.boolean().default(false),
+});
+
+export type AnswerProvenance = z.infer<typeof AnswerProvenanceSchema>;
+
 const baseFields = {
   id: z.string().min(1),
   /** Markdown question stem (supports KaTeX math, GFM tables, code blocks). */
@@ -97,7 +121,17 @@ const baseFields = {
       zh: z.string().min(1),
       en: z.string().min(1),
     })).max(3).optional(),
+    /** Source sitting and original numbering retained after section imports. */
+    sourceExam: z
+      .object({
+        examDate: z.string().default(""),
+        setLabel: z.string().default(""),
+        sourceQuestionNumber: z.number().int().positive().optional(),
+        sourcePassage: z.enum(["one", "two", "three"]).optional(),
+      })
+      .optional(),
   }).optional(),
+  answerProvenance: AnswerProvenanceSchema.optional(),
 };
 
 export const SingleChoiceSchema = z.object({
@@ -179,10 +213,23 @@ export const ExamMetadataSchema = z.object({
   totalScore: z.number().positive().optional(),
 });
 
+export const PaperPracticeScopeSchema = z.object({
+  mode: z.enum(["full", "specialty", "imported"]).default("full"),
+  selectedStages: z.array(z.string()).default([]),
+  focusTopic: z.string().default(""),
+  sourceFileName: z.string().default(""),
+  examDate: z.string().default(""),
+  setLabel: z.string().default(""),
+  listeningAudioPath: z.string().default(""),
+});
+
+export type PaperPracticeScope = z.infer<typeof PaperPracticeScopeSchema>;
+
 export const ExamPaperSchema = z.object({
   version: z.number().int().default(PAPER_SCHEMA_VERSION),
   title: z.string(),
   metadata: ExamMetadataSchema.optional(),
+  practiceScope: PaperPracticeScopeSchema.optional(),
   questions: z.array(QuestionSchema),
 });
 

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   ClipboardCheck,
   FilePlus2,
+  FileSearch,
   FolderOpen,
   Heart,
   MoreHorizontal,
@@ -10,6 +11,7 @@ import {
   ShieldCheck,
   Sparkles,
   SquarePen,
+  Target,
 } from "lucide-react";
 import { usePaperStore } from "../../stores/paperStore";
 import { usePracticeStore } from "../../stores/practiceStore";
@@ -20,6 +22,8 @@ interface ActionBarProps {
   onOpenSettings: () => void;
   onOpenPaperManager: () => void;
   onQuickGenerate: () => void;
+  onSpecialtyGenerate: () => void;
+  onRealExamImport: () => void;
   onOpenReview: () => void;
   onOpenQuality: () => void;
   onOpenDonate: () => void;
@@ -29,15 +33,19 @@ export function ActionBar({
   onOpenSettings,
   onOpenPaperManager,
   onQuickGenerate,
+  onSpecialtyGenerate,
+  onRealExamImport,
   onOpenReview,
   onOpenQuality,
   onOpenDonate,
 }: ActionBarProps) {
   const { t } = useTranslation();
   const paperTitle = usePaperStore((state) => state.paper.title);
+  const paper = usePaperStore((state) => state.paper);
   const questionCount = usePaperStore((state) => state.paper.questions.length);
   const newPaper = usePaperStore((state) => state.newPaper);
   const practiceMode = usePracticeStore((state) => state.practiceMode);
+  const timerDurationMs = usePracticeStore((state) => state.timerDurationMs);
   const setPracticeMode = usePracticeStore((state) => state.setPracticeMode);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -62,7 +70,17 @@ export function ActionBar({
       <ExportMenu variant="audio" triggerClassName={primaryActionBtn} />
       <button
         type="button"
-        onClick={() => setPracticeMode(!practiceMode)}
+        onClick={() => {
+          const timer =
+            paper.practiceScope?.mode === "imported" &&
+            paper.metadata?.duration != null
+              ? paper.practiceScope.selectedStages.length >= 8
+                ? paper.metadata.duration * 60_000
+                : timerDurationMs
+              : 0;
+          if (timer > 0) setPracticeMode(!practiceMode, timer);
+          else setPracticeMode(!practiceMode);
+        }}
         title={t(practiceMode ? "practice.exit" : "practice.start")}
         className={primaryActionBtn}
       >
@@ -77,6 +95,24 @@ export function ActionBar({
       >
         <Sparkles className="h-4 w-4" />
         <span>{t("app.generateCet")}</span>
+      </button>
+      <button
+        type="button"
+        onClick={onSpecialtyGenerate}
+        title={t("specialty.title")}
+        className={primaryActionBtn}
+      >
+        <Target className="h-4 w-4" />
+        <span>{t("specialty.title")}</span>
+      </button>
+      <button
+        type="button"
+        onClick={onRealExamImport}
+        title={t("realImport.title")}
+        className={outlineActionBtn}
+      >
+        <FileSearch className="h-4 w-4" />
+        <span>{t("realImport.title")}</span>
       </button>
       <ExportMenu triggerClassName={outlineActionBtn} iconOnly />
       <button

@@ -59,6 +59,43 @@ Constraints:
   ];
 }
 
+export function buildCet6SpecialtyBlueprintPrompt(
+  selectedStages: readonly Cet6ContentStage[],
+  focusTopic = "",
+): ApiMessage[] {
+  const selected = new Set(selectedStages);
+  const listening = selectedStages.filter((stage) =>
+    stage.startsWith("listening"),
+  );
+  const reading = selectedStages.filter((stage) => stage.startsWith("reading"));
+  const focus = focusTopic.trim();
+  return [
+    { role: "system", content: SYSTEM_PROMPT },
+    {
+      role: "user",
+      content: `Create a compact blueprint for one CET-6 specialty-training paper.
+
+Selected stages only:
+${selectedStages.join(", ")}
+${focus ? `Optional user focus: ${focus}` : "No user topic was supplied; choose an appropriate original topic."}
+
+Develop concrete topics only for selected stages. Write "Not selected" in fields
+that are not used. Return the complete shape below so existing validation can
+parse it:
+{"title":"...","topics":{"writing":"...","listening":"...","listeningCases":{"a1":"...","a2":"...","b1":"...","b2":"...","c1":"...","c2":"...","c3":"..."},"reading":"...","readingB":"...","readingC":{"first":"...","second":"..."},"translation":"..."}}
+
+Rules:
+- ${selected.has("writing") ? "Develop one writing topic." : "Set writing to Not selected."}
+- ${listening.length > 0 ? `Develop only these listening cases: ${listening.join(", ")}.` : "Set listening and every listeningCases field to Not selected."}
+- ${reading.length > 0 ? `Develop only these reading forms: ${reading.join(", ")}.` : "Set reading, readingB and readingC topics to Not selected."}
+- ${selected.has("reading-b") ? "Develop a Reading B matching-passage topic." : "Set readingB to Not selected."}
+- ${selected.has("reading-c") ? "Develop two distinct Reading C close-reading subjects." : "Mark both readingC subjects as Not selected."}
+- ${selected.has("translation") ? "Develop one translation topic." : "Set translation to Not selected."}
+- Keep all selected concrete examples mutually distinct and commercially original.`,
+    },
+  ];
+}
+
 /**
  * Ask the model to repair its own previous structured response while preserving
  * every part that already passed the deterministic validators.

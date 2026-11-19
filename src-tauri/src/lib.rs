@@ -137,6 +137,7 @@ pub fn run() {
             openai::stream_chat,
             openai::complete_chat,
             openai::extract_images_with_ai,
+            openai::extract_image_data_with_ai,
             openai::abort_chat,
             openai::list_models,
             openai::test_connection,

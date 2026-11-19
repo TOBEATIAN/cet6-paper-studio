@@ -358,7 +358,7 @@ export const TtsProviderSchema = z.enum([
 export const TTS_PROVIDERS = TtsProviderSchema.options;
 export const TTS_SPEECH_RATE_MIN = 140;
 export const TTS_SPEECH_RATE_MAX = 200;
-export const TTS_SPEECH_RATE_DEFAULT = 170;
+export const TTS_SPEECH_RATE_DEFAULT = 165;
 export const TTS_KEY_ACCOUNTS = {
   aliyun: "tts:aliyun",
   mimo: "tts:mimo",
@@ -490,6 +490,26 @@ export const AppSettingsSchema = z.object({
   webSearch: WebSearchSettingsSchema.prefault({}),
   /** Listening-audio provider and learner-selectable speech rate. */
   tts: TtsSettingsSchema.prefault({}),
+  /** Last specialty-stage selection; generation still validates at start. */
+  specialtyTraining: z
+    .object({
+      selectedStages: z
+        .array(
+          z.enum([
+            "writing",
+            "listening-a",
+            "listening-b",
+            "listening-c",
+            "reading-a",
+            "reading-b",
+            "reading-c",
+            "translation",
+          ]),
+        )
+        .default([]),
+      focusTopic: z.string().default(""),
+    })
+    .prefault({}),
   /** Max number of historical messages sent to the model per turn (0 = unlimited). */
   contextMessageLimit: z.number().int().min(0).max(200).default(0),
 });
@@ -518,6 +538,14 @@ export const AppConfigSchema = AppConfigBaseSchema.transform((config) => {
     version: CONFIG_SCHEMA_VERSION,
     settings: {
       ...config.settings,
+      tts: {
+        ...config.settings.tts,
+        targetWpm:
+          config.settings.tts.targetWpm === 170 ||
+          config.settings.tts.targetWpm === 175
+            ? TTS_SPEECH_RATE_DEFAULT
+            : config.settings.tts.targetWpm,
+      },
       ...(config.version < 2 && config.settings.paperFontSize === "xiaosi"
         ? { paperFontSize: "wuhao" as const }
         : {}),

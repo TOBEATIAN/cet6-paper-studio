@@ -26,6 +26,9 @@ import { QualityReportModal } from "./components/review/QualityReportModal";
 import { ModalErrorBoundary } from "./components/layout/ModalErrorBoundary";
 import { useAssistantStore } from "./stores/assistantStore";
 import { useCet6GenerationStore } from "./stores/cet6GenerationStore";
+import { SpecialtyTrainingModal } from "./components/assistant/SpecialtyTrainingModal";
+import { RealExamImportModal } from "./components/paper/RealExamImportModal";
+import type { Cet6GenerationScope } from "./lib/types/cet";
 import {
   configurePracticePersistence,
   usePracticeStore,
@@ -58,6 +61,8 @@ export default function App() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [qualityOpen, setQualityOpen] = useState(false);
   const [donateOpen, setDonateOpen] = useState(false);
+  const [specialtyOpen, setSpecialtyOpen] = useState(false);
+  const [realImportOpen, setRealImportOpen] = useState(false);
   const [reviewInitialPractice, setReviewInitialPractice] =
     useState<ReviewInitialPractice>();
   const [drawerOpen, setDrawerOpen] = useState(true);
@@ -145,6 +150,8 @@ export default function App() {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         if (qualityOpen) setQualityOpen(false);
+        else if (specialtyOpen) setSpecialtyOpen(false);
+        else if (realImportOpen) setRealImportOpen(false);
         else if (donateOpen) setDonateOpen(false);
         else if (reviewOpen) setReviewOpen(false);
         else if (paperManagerOpen) setPaperManagerOpen(false);
@@ -158,7 +165,7 @@ export default function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [settingsOpen, paperManagerOpen, reviewOpen, qualityOpen, donateOpen]);
+  }, [settingsOpen, paperManagerOpen, reviewOpen, qualityOpen, donateOpen, specialtyOpen, realImportOpen]);
 
   if (!loaded) {
     return <div className="grid h-full place-items-center bg-background text-muted-foreground" />;
@@ -179,6 +186,20 @@ export default function App() {
     }
     setDrawerOpen(true);
     void startCet6Generation();
+  }
+
+  async function startSpecialty(scope: Cet6GenerationScope) {
+    if (!activeConfig) {
+      setSpecialtyOpen(false);
+      setSettingsOpen(true);
+      return;
+    }
+    if (paper.questions.length > 0) {
+      window.alert(t("cet6.nonEmptyPaper"));
+      return;
+    }
+    setDrawerOpen(true);
+    void startCet6Generation(scope);
   }
 
   function openReview() {
@@ -224,6 +245,8 @@ export default function App() {
               onOpenSettings={() => setSettingsOpen(true)}
               onOpenPaperManager={() => setPaperManagerOpen(true)}
               onQuickGenerate={quickGenerate}
+              onSpecialtyGenerate={() => setSpecialtyOpen(true)}
+              onRealExamImport={() => setRealImportOpen(true)}
               onOpenReview={openReview}
               onOpenQuality={() => setQualityOpen(true)}
               onOpenDonate={() => setDonateOpen(true)}
@@ -254,6 +277,28 @@ export default function App() {
             </div>
             {settingsOpen && (
               <SettingsModal onClose={() => setSettingsOpen(false)} />
+            )}
+            {specialtyOpen && (
+              <SpecialtyTrainingModal
+                onClose={() => setSpecialtyOpen(false)}
+                onStart={startSpecialty}
+              />
+            )}
+            {realImportOpen && (
+              <RealExamImportModal
+                onClose={() => setRealImportOpen(false)}
+                onApplied={() => {
+                  const current = usePaperStore.getState().paper;
+                  usePracticeStore
+                    .getState()
+                    .setPracticeMode(
+                      true,
+                      (current.practiceScope?.selectedStages.length ?? 0) >= 8
+                        ? (current.metadata?.duration ?? 0) * 60_000
+                        : 0,
+                    );
+                }}
+              />
             )}
             {paperManagerOpen && (
               <PaperManagerModal onClose={() => setPaperManagerOpen(false)} />
