@@ -53,6 +53,7 @@ export type ReadingCRiskReview = z.infer<typeof ReadingCRiskReviewSchema>;
 export const AnswerProvenanceSchema = z.object({
   status: z.enum([
     "provided",
+    "bank",
     "official",
     "consensus",
     "single-source",

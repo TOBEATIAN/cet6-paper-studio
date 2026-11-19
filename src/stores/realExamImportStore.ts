@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import type { Cet6ContentStage } from "../lib/types/cet";
 import type {
   AnswerSearchResult,
@@ -14,6 +15,13 @@ import {
   mergeImportedPages,
   parseImportedPageDraft,
 } from "../lib/import/realExamImport";
+import {
+  emptyAnswerBank,
+  entriesFromConfirmedDraft,
+  lookupBankAnswers,
+  mergeAnswerBank,
+} from "../lib/import/answerBank";
+import { AnswerBankSchema } from "../lib/types/answerBank";
 import {
   importedPageInstruction,
   readImportFileAsPageImages,
@@ -35,6 +43,7 @@ interface RealExamImportState {
   progress: string;
   draft: ImportedPaperDraft | null;
   answers: AnswerSearchResult | null;
+  bankCount: number;
   error: string;
   extract: (input: {
     paths: string[];
@@ -51,6 +60,9 @@ interface RealExamImportState {
     answerLetter: string,
   ) => void;
   apply: () => Promise<boolean>;
+  importBank: (path: string) => Promise<void>;
+  exportBank: (path: string) => Promise<void>;
+  refreshBankCount: () => Promise<void>;
   clear: () => void;
 }
 
@@ -59,6 +71,7 @@ export const useRealExamImportStore = create<RealExamImportState>((set, get) => 
   progress: "",
   draft: null,
   answers: null,
+  bankCount: 0,
   error: "",
 
   extract: async (input) => {
@@ -130,14 +143,22 @@ ${pages
   searchAnswers: async () => {
     const draft = get().draft;
     if (!draft) return;
-    if (draft.blocks.every((block) =>
-      block.questions.every((question) => Boolean(question.answerLetter)),
-    )) {
-      set({ answers: answerTableForDraft(draft) });
+    const { config, getWebSearchApiKey, activeConfig, dataDir } =
+      useConfigStore.getState();
+    const bank = await loadLocalBank(dataDir);
+    const bankTable = lookupBankAnswers(draft, bank);
+    set({ bankCount: bank.entries.length, answers: bankTable });
+    if (
+      bankTable.rows.every(
+        (row) => row.status !== "missing" && row.status !== "conflict",
+      ) ||
+      draft.blocks.every((block) =>
+        block.questions.every((question) => Boolean(question.answerLetter)),
+      )
+    ) {
+      set({ progress: "realImport.progress.bankHit" });
       return;
     }
-    const { config, getWebSearchApiKey, activeConfig } =
-      useConfigStore.getState();
     const search = config.settings.webSearch;
     const model = activeConfig();
     if (!model) return;
@@ -152,7 +173,7 @@ ${pages
         status: "ready",
         progress: "realImport.progress.manualNoKey",
         error: "",
-        answers: answerTableForDraft(draft),
+        answers: bankTable,
       });
       return;
     }
@@ -181,7 +202,7 @@ ${pages
         set({
           status: "ready",
           progress: "realImport.progress.manualNoResult",
-          answers: mergeAnswerRows(draft, "{}", query),
+          answers: mergeAnswerRows(draft, "{}", query, bankTable),
         });
         return;
       }
@@ -206,14 +227,14 @@ ${pages
       set({
         status: "ready",
         progress: "realImport.progress.candidates",
-        answers: mergeAnswerRows(draft, reply, query),
+        answers: mergeAnswerRows(draft, reply, query, bankTable),
       });
     } catch (error) {
       set({
         status: "ready",
         progress: "realImport.progress.manualFailed",
         error: error instanceof Error ? error.message : String(error),
-        answers: mergeAnswerRows(draft, "{}", ""),
+        answers: mergeAnswerRows(draft, "{}", "", bankTable),
       });
     }
   },
@@ -299,11 +320,27 @@ ${pages
       }
       await usePaperStore.getState().newPaper();
       await usePaperStore.getState().replacePaper(paper);
+      const { dataDir } = useConfigStore.getState();
+      const bank = await loadLocalBank(dataDir);
+      const nextBank = mergeAnswerBank(
+        bank,
+        AnswerBankSchema.parse({
+          version: 1,
+          updatedAt: new Date().toISOString(),
+          entries: entriesFromConfirmedDraft(confirmedDraft, confirmedAnswers.rows),
+        }),
+      );
+      if (dataDir) {
+        await storage
+          .saveAnswerBank(dataDir, JSON.stringify(nextBank, null, 2))
+          .catch(() => undefined);
+      }
       set({
         status: "idle",
         progress: "",
         draft: null,
         answers: null,
+        bankCount: nextBank.entries.length,
         error: "",
       });
       return true;
@@ -314,6 +351,38 @@ ${pages
       });
       return false;
     }
+  },
+
+  importBank: async (path) => {
+    const { dataDir } = useConfigStore.getState();
+    if (!dataDir) return;
+    try {
+      const incoming = AnswerBankSchema.parse(
+        JSON.parse(await readTextFile(path)),
+      );
+      const next = mergeAnswerBank(await loadLocalBank(dataDir), incoming);
+      await storage.saveAnswerBank(dataDir, JSON.stringify(next, null, 2));
+      set({ bankCount: next.entries.length, error: "" });
+    } catch (error) {
+      set({ error: importErrorMessage(error) });
+    }
+  },
+
+  exportBank: async (path) => {
+    const { dataDir } = useConfigStore.getState();
+    if (!dataDir) return;
+    try {
+      const bank = await loadLocalBank(dataDir);
+      await writeTextFile(path, JSON.stringify(bank, null, 2));
+      set({ bankCount: bank.entries.length, error: "" });
+    } catch (error) {
+      set({ error: importErrorMessage(error) });
+    }
+  },
+
+  refreshBankCount: async () => {
+    const bank = await loadLocalBank(useConfigStore.getState().dataDir);
+    set({ bankCount: bank.entries.length });
   },
 
   clear: () =>
@@ -406,4 +475,14 @@ function importErrorMessage(error: unknown): string {
     return "realImport.errors.canvasUnavailable";
   }
   return message;
+}
+
+async function loadLocalBank(dataDir: string | null) {
+  if (!dataDir) return emptyAnswerBank();
+  try {
+    const raw = await storage.loadAnswerBank(dataDir);
+    return raw == null ? emptyAnswerBank() : AnswerBankSchema.parse(raw);
+  } catch {
+    return emptyAnswerBank();
+  }
 }

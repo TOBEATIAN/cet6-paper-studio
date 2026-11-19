@@ -339,11 +339,12 @@ export function mergeAnswerRows(
   draft: ImportedPaperDraft,
   rawReply: string,
   query: string,
+  baseResult?: AnswerSearchResult,
 ): AnswerSearchResult {
   const { json } = extractJson(rawReply);
-  if (!json) return answerTableForDraft(draft);
+  if (!json) return baseResult ?? answerTableForDraft(draft);
   const parsed = AnswerCandidateResponseSchema.parse(JSON.parse(json));
-  const base = answerTableForDraft(draft);
+  const base = baseResult ?? answerTableForDraft(draft);
   const rowCountByQuestion = new Map<string, number>();
   base.rows.forEach((row) => {
     const key = `${row.stage}:${row.sourceQuestionNumber}`;

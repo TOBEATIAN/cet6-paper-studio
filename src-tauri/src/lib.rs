@@ -122,6 +122,8 @@ pub fn run() {
             storage::load_cet6_checkpoint,
             storage::save_cet6_checkpoint,
             storage::delete_cet6_checkpoint,
+            storage::load_answer_bank,
+            storage::save_answer_bank,
             storage::save_cet6_diagnostic,
             storage::open_cet6_diagnostic_dir,
             storage::read_audio_file,

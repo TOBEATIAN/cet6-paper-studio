@@ -294,6 +294,20 @@ export async function loadPracticeSession(
   return raw == null ? null : JSON.parse(raw);
 }
 
+export async function loadAnswerBank(
+  dataDir: string,
+): Promise<unknown | null> {
+  const raw = await invoke<string | null>("load_answer_bank", { dataDir });
+  return raw == null ? null : JSON.parse(raw);
+}
+
+export function saveAnswerBank(
+  dataDir: string,
+  contents: string,
+): Promise<void> {
+  return invoke("save_answer_bank", { dataDir, contents });
+}
+
 export function savePracticeSession(
   dataDir: string,
   paperId: string,

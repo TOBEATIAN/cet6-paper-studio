@@ -24,6 +24,7 @@ export const ImportedQuestionSchema = z.object({
   answerStatus: z
     .enum([
       "provided",
+      "bank",
       "official",
       "consensus",
       "single-source",
@@ -103,6 +104,7 @@ export const AnswerSearchRowSchema = z.object({
   answerLetter: z.string().regex(/^[A-D]$/i).optional(),
   status: z.enum([
     "provided",
+      "bank",
     "official",
     "consensus",
     "single-source",

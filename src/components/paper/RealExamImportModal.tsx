@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   CheckCircle2,
   FileSearch,
@@ -32,12 +32,18 @@ export function RealExamImportModal({
   const progress = useRealExamImportStore((state) => state.progress);
   const draft = useRealExamImportStore((state) => state.draft);
   const answers = useRealExamImportStore((state) => state.answers);
+  const bankCount = useRealExamImportStore((state) => state.bankCount);
   const error = useRealExamImportStore((state) => state.error);
   const extract = useRealExamImportStore((state) => state.extract);
   const searchAnswers = useRealExamImportStore((state) => state.searchAnswers);
   const updateAnswer = useRealExamImportStore((state) => state.updateAnswer);
   const apply = useRealExamImportStore((state) => state.apply);
   const replaceDraft = useRealExamImportStore((state) => state.replaceDraft);
+  const importBank = useRealExamImportStore((state) => state.importBank);
+  const exportBank = useRealExamImportStore((state) => state.exportBank);
+  const refreshBankCount = useRealExamImportStore(
+    (state) => state.refreshBankCount,
+  );
   const clear = useRealExamImportStore((state) => state.clear);
   const [mode, setMode] = useState<"full" | "section">("full");
   const [selectedStages, setSelectedStages] = useState<Cet6ContentStage[]>([
@@ -57,6 +63,10 @@ export function RealExamImportModal({
   useEffect(() => {
     setDraftText(draft ? JSON.stringify(draft, null, 2) : "");
   }, [draft]);
+
+  useEffect(() => {
+    void refreshBankCount();
+  }, [refreshBankCount]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -113,6 +123,23 @@ export function RealExamImportModal({
       ],
     });
     setAudioFile(typeof selected === "string" ? selected : "");
+  }
+
+  async function chooseBankImport() {
+    const selected = await open({
+      multiple: false,
+      directory: false,
+      filters: [{ name: t("realImport.bankFile"), extensions: ["json"] }],
+    });
+    if (typeof selected === "string") await importBank(selected);
+  }
+
+  async function chooseBankExport() {
+    const target = await save({
+      defaultPath: "六级智卷答案库.json",
+      filters: [{ name: t("realImport.bankFile"), extensions: ["json"] }],
+    });
+    if (target) await exportBank(target);
   }
 
   async function startExtraction() {
@@ -250,6 +277,28 @@ export function RealExamImportModal({
                 <p className="mt-2 break-all text-xs text-muted-foreground">
                   {audioFile || t("realImport.optional")}
                 </p>
+                <div className="mt-4 border-t border-border pt-3">
+                  <p className="text-xs font-medium">
+                    {t("realImport.bankCount", { count: bankCount })}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void chooseBankImport()}
+                      className={secondaryBtn}
+                    >
+                      {t("realImport.importBank")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={bankCount === 0}
+                      onClick={() => void chooseBankExport()}
+                      className={secondaryBtn}
+                    >
+                      {t("realImport.exportBank")}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}

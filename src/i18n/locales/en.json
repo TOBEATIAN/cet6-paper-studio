@@ -50,6 +50,10 @@
     "audioFilter": "Listening audio",
     "chooseQuestions": "Choose question files",
     "chooseAudio": "Attach listening audio (optional)",
+    "bankFile": "CET-6 answer bank",
+    "bankCount": "Local answer bank: {{count}} answers",
+    "importBank": "Import answer bank",
+    "exportBank": "Export answer bank",
     "noFiles": "No files selected",
     "optional": "Not attached",
     "working": "Working…",
@@ -70,6 +74,7 @@
     "apply": "Confirm and create paper",
     "answerStatus": {
       "provided": "Provided in file",
+      "bank": "Matched from bank",
       "official": "Official source",
       "consensus": "Multi-source consensus",
       "single-source": "Single source",
@@ -85,7 +90,8 @@
       "search": "Searching public answer sources…",
       "manualNoResult": "No public answer source was found. Enter answers manually.",
       "candidates": "Answer candidates are ready for confirmation.",
-      "manualFailed": "Automatic answer search failed. Enter answers manually."
+      "manualFailed": "Automatic answer search failed. Enter answers manually.",
+      "bankHit": "Answers were matched from the local answer bank."
     },
     "errors": {
       "modelRequired": "Configure and enable a vision-capable model first.",

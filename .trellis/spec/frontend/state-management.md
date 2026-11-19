@@ -240,6 +240,15 @@ prevents timer policy from being duplicated. Full imported papers use their
 metadata duration, while section imports start untimed and expose an explicit
 timer action.
 
+### Persisted answer bank
+
+Search the local `answer-bank.json` before calling a web-search provider. Bank
+lookup uses original question number plus group identity and a short first/last
+passage signature; full real-exam passages must not be stored. Confirmed answers
+are merged by deterministic ID after paper application. A bank-save failure must
+not invalidate an already-created paper. JSON import and export are explicit user
+actions and still pass through `AnswerBankSchema`.
+
 ### Reading C calibration and strong-distractor closure
 
 Reading C combines a versioned 2022+ real-paper profile corpus with lightweight

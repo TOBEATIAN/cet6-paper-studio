@@ -188,6 +188,18 @@ fn write_json_file(dir: &Path, file: &str, contents: &str) -> AppResult<()> {
     Ok(())
 }
 
+const ANSWER_BANK_FILE: &str = "answer-bank.json";
+
+#[tauri::command]
+pub fn load_answer_bank(data_dir: String) -> AppResult<Option<String>> {
+    read_json_file(Path::new(&data_dir), ANSWER_BANK_FILE)
+}
+
+#[tauri::command]
+pub fn save_answer_bank(data_dir: String, contents: String) -> AppResult<()> {
+    write_json_file(Path::new(&data_dir), ANSWER_BANK_FILE, &contents)
+}
+
 fn preserve_corrupt_file(path: &Path, file: &str) -> AppResult<()> {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -887,6 +899,20 @@ mod tests {
                 .join("paper____1.json")
         );
         assert!(!path.to_string_lossy().contains(".."));
+    }
+
+    #[test]
+    fn answer_bank_round_trips_at_the_data_root() {
+        let root = temp_path("answer-bank-root");
+        let contents = r#"{"version":1,"entries":[]}"#;
+        save_answer_bank(root.to_str().unwrap().into(), contents.into()).unwrap();
+        assert_eq!(
+            load_answer_bank(root.to_str().unwrap().into())
+                .unwrap()
+                .as_deref(),
+            Some(contents)
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
