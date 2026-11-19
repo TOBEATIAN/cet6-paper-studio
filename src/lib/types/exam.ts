@@ -219,6 +219,7 @@ export const PaperPracticeScopeSchema = z.object({
   selectedStages: z.array(z.string()).default([]),
   focusTopic: z.string().default(""),
   sourceFileName: z.string().default(""),
+  sourceHash: z.string().default(""),
   examDate: z.string().default(""),
   setLabel: z.string().default(""),
   listeningAudioPath: z.string().default(""),

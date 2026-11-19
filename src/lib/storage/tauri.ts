@@ -16,6 +16,7 @@ import {
   type PaperIndex,
   type WebSearchResult,
 } from "../types/library";
+import { OcrResponseSchema } from "../types/import";
 import {
   ReviewIndexSchema,
   ReviewRecordSchema,
@@ -446,6 +447,15 @@ export async function extractImageDataWithAi(args: {
 }): Promise<string> {
   const raw = await invoke<unknown>("extract_image_data_with_ai", args);
   return z.string().min(1).parse(raw);
+}
+
+export async function ocrImportPages(args: {
+  dataDir: string;
+  sourceHash: string;
+  pages: Array<{ pageNumber: number; imageDataUrl: string }>;
+}): Promise<import("../types/import").OcrPageResult[]> {
+  const raw = await invoke<unknown>("ocr_import_pages", args);
+  return OcrResponseSchema.parse(raw).pages;
 }
 
 export async function testTtsConnection(args: {

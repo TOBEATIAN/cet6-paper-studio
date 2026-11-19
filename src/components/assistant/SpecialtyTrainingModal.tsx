@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Sparkles, X } from "lucide-react";
-import { CET6_CONTENT_STAGES, type Cet6ContentStage } from "../../lib/types/cet";
+import {
+  CET6_CONTENT_STAGES,
+  type Cet6ContentStage,
+  type SpecialtyStageTopics,
+} from "../../lib/types/cet";
 import type { Cet6GenerationScope } from "../../lib/types/cet";
 import { useConfigStore } from "../../stores/configStore";
 import { inputCls, primaryBtn, secondaryBtn } from "../../lib/ui/styles";
@@ -22,7 +26,9 @@ export function SpecialtyTrainingModal({
   const [selected, setSelected] = useState<Cet6ContentStage[]>(
     settings.selectedStages,
   );
-  const [focusTopic, setFocusTopic] = useState(settings.focusTopic);
+  const [stageTopics, setStageTopics] = useState<SpecialtyStageTopics>(
+    settings.stageTopics,
+  );
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
 
@@ -55,13 +61,15 @@ export function SpecialtyTrainingModal({
       await updateSettings({
         specialtyTraining: {
           selectedStages: selected,
-          focusTopic: focusTopic.trim(),
+          focusTopic: "",
+          stageTopics,
         },
       });
       await onStart({
         mode: "specialty",
         selectedStages: selected,
-        focusTopic: focusTopic.trim(),
+        stageTopics,
+        focusTopic: "",
       });
       onClose();
     } catch (cause) {
@@ -127,16 +135,72 @@ export function SpecialtyTrainingModal({
           </div>
         </fieldset>
 
-        <label className="mt-4 block text-sm font-medium">
-          {t("specialty.focusTopic")}
-          <input
-            value={focusTopic}
-            onChange={(event) => setFocusTopic(event.currentTarget.value)}
-            placeholder={t("specialty.focusPlaceholder")}
-            className={`${inputCls} mt-1 w-full`}
-            maxLength={120}
-          />
-        </label>
+        <div className="mt-4 space-y-3">
+          {selected.map((stage) => (
+            <div key={stage} className="rounded-md border border-border p-3">
+              <p className="text-sm font-medium">{t(stageLabelKey(stage))}</p>
+              {stage === "reading-c" ? (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <label className="block text-xs text-muted-foreground">
+                    {t("specialty.passageOneTopic")}
+                    <input
+                      value={stageTopics["reading-c"].first}
+                      onChange={(event) => {
+                        const topic = event.target.value;
+                        setStageTopics((current) => ({
+                          ...current,
+                          "reading-c": {
+                            ...current["reading-c"],
+                            first: topic,
+                          },
+                        }));
+                      }}
+                      placeholder={t("specialty.randomIfEmpty")}
+                      className={`${inputCls} mt-1 w-full`}
+                      maxLength={120}
+                    />
+                  </label>
+                  <label className="block text-xs text-muted-foreground">
+                    {t("specialty.passageTwoTopic")}
+                    <input
+                      value={stageTopics["reading-c"].second}
+                      onChange={(event) => {
+                        const topic = event.target.value;
+                        setStageTopics((current) => ({
+                          ...current,
+                          "reading-c": {
+                            ...current["reading-c"],
+                            second: topic,
+                          },
+                        }));
+                      }}
+                      placeholder={t("specialty.randomIfEmpty")}
+                      className={`${inputCls} mt-1 w-full`}
+                      maxLength={120}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <input
+                  value={stageTopics[stage] as string}
+                  onChange={(event) => {
+                    const topic = event.target.value;
+                    setStageTopics((current) => ({
+                      ...current,
+                      [stage]: topic,
+                    }));
+                  }}
+                  placeholder={t("specialty.randomIfEmpty")}
+                  aria-label={t("specialty.topicForStage", {
+                    stage: t(stageLabelKey(stage)),
+                  })}
+                  className={`${inputCls} mt-2 w-full`}
+                  maxLength={120}
+                />
+              )}
+            </div>
+          ))}
+        </div>
 
         {error && (
           <p role="alert" className="mt-3 text-sm text-destructive">

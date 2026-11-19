@@ -11,7 +11,9 @@ import { validateQuestions } from "../api/validateQuestions";
 import { toStudentVersion } from "../exam/studentVersion";
 import {
   createCet6PaperTitle,
+  createSpecialtyPaperTitle,
   isCet6TimestampTitle,
+  specialtyTopicSummary,
 } from "../exam/paperTitle";
 import {
   CET6_STAGE_SPECS,
@@ -478,7 +480,14 @@ export function buildCet6Paper(
     (selectedSet.has("translation") ? 30 : 0);
   return {
     version: 1,
-    title: createCet6PaperTitle(generatedAt),
+    title:
+      scope?.mode === "specialty"
+        ? createSpecialtyPaperTitle(
+            generatedAt,
+            selected,
+            scope.stageTopics,
+          )
+        : createCet6PaperTitle(generatedAt),
     metadata: {
       subject: "大学英语六级",
       duration: Math.max(1, duration),
@@ -489,8 +498,9 @@ export function buildCet6Paper(
         ? {
             mode: "specialty",
             selectedStages: selected,
-            focusTopic: scope.focusTopic,
+            focusTopic: specialtyTopicSummary(selected, scope.stageTopics),
             sourceFileName: "",
+            sourceHash: "",
             examDate: "",
             setLabel: "",
             listeningAudioPath: "",

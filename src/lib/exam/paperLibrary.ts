@@ -2,6 +2,7 @@ import { v4 as uuid } from "uuid";
 import { ExamPaperSchema, type ExamPaper } from "../types/exam";
 import type { PaperIndex, PaperMeta } from "../types/library";
 import { createCet6PaperTitle } from "./paperTitle";
+import { CET6_STAGE_SPECS } from "../cet/structure";
 
 export function emptyPaper(createdAt = new Date()): ExamPaper {
   return ExamPaperSchema.parse({
@@ -21,12 +22,41 @@ export function buildPaperMeta(
   now: string,
   existing?: PaperMeta,
 ): PaperMeta {
+  const scope = paper.practiceScope;
+  const stageLabels = [
+    ...new Set(
+      paper.questions.flatMap((question) => {
+        const kind = question.examSection?.kind;
+        const entry = (
+          Object.entries(CET6_STAGE_SPECS) as Array<
+            [keyof typeof CET6_STAGE_SPECS, (typeof CET6_STAGE_SPECS)[keyof typeof CET6_STAGE_SPECS]]
+          >
+        ).find(([, spec]) => spec.kind === kind);
+        return entry ? [entry[1].labelZh] : [];
+      }),
+    ),
+  ];
+  const kind =
+    paper.questions.length === 0
+      ? "draft"
+      : scope?.mode === "imported"
+        ? "imported"
+        : scope?.mode === "specialty"
+          ? "specialty"
+          : "full";
   return {
     id,
     title: paper.title.trim() || "未命名试卷",
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     questionCount: paper.questions.length,
+    kind,
+    stageLabels,
+    examDate: scope?.examDate ?? "",
+    setLabel: scope?.setLabel ?? "",
+    sourceHash: scope?.sourceHash ?? "",
+    topicSummary: scope?.focusTopic ?? "",
+    archived: existing?.archived ?? false,
   };
 }
 
@@ -37,7 +67,7 @@ export function createPaperIndex(
 ): { index: PaperIndex; paperId: string; paper: ExamPaper } {
   return {
     index: {
-      version: 1,
+      version: 2,
       activePaperId: id,
       papers: [buildPaperMeta(paper, id, now)],
     },

@@ -1,5 +1,6 @@
 mod error;
 mod keychain;
+mod ocr;
 mod openai;
 mod storage;
 mod tts;
@@ -128,6 +129,7 @@ pub fn run() {
             storage::open_cet6_diagnostic_dir,
             storage::read_audio_file,
             storage::read_image_file,
+            ocr::ocr_import_pages,
             set_window_close_behavior,
             set_generation_running,
             exit_app,

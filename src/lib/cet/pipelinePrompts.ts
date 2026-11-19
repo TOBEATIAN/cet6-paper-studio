@@ -1,5 +1,9 @@
 import type { ApiMessage } from "../types/library";
-import type { Cet6Blueprint, Cet6ContentStage } from "../types/cet";
+import type {
+  Cet6Blueprint,
+  Cet6ContentStage,
+  SpecialtyStageTopics,
+} from "../types/cet";
 import type { Question } from "../types/exam";
 import { CET6_STAGE_SPECS, expectedQuestionCount } from "./structure";
 import { createReadingBAnswerPlan } from "./readingBPlan";
@@ -61,14 +65,18 @@ Constraints:
 
 export function buildCet6SpecialtyBlueprintPrompt(
   selectedStages: readonly Cet6ContentStage[],
-  focusTopic = "",
+  stageTopics: SpecialtyStageTopics,
 ): ApiMessage[] {
   const selected = new Set(selectedStages);
   const listening = selectedStages.filter((stage) =>
     stage.startsWith("listening"),
   );
   const reading = selectedStages.filter((stage) => stage.startsWith("reading"));
-  const focus = focusTopic.trim();
+  const topicLines = selectedStages.map((stage) =>
+    stage === "reading-c"
+      ? `- reading-c: Passage One focus: ${stageTopics["reading-c"].first.trim() || "choose independently"}; Passage Two focus: ${stageTopics["reading-c"].second.trim() || "choose independently, different from Passage One"}`
+      : `- ${stage}: ${stageTopics[stage].trim() || "choose independently"}`,
+  );
   return [
     { role: "system", content: SYSTEM_PROMPT },
     {
@@ -77,7 +85,9 @@ export function buildCet6SpecialtyBlueprintPrompt(
 
 Selected stages only:
 ${selectedStages.join(", ")}
-${focus ? `Optional user focus: ${focus}` : "No user topic was supplied; choose an appropriate original topic."}
+
+Per-stage user direction:
+${topicLines.join("\n")}
 
 Develop concrete topics only for selected stages. Write "Not selected" in fields
 that are not used. Return the complete shape below so existing validation can
@@ -91,6 +101,8 @@ Rules:
 - ${selected.has("reading-b") ? "Develop a Reading B matching-passage topic." : "Set readingB to Not selected."}
 - ${selected.has("reading-c") ? "Develop two distinct Reading C close-reading subjects." : "Mark both readingC subjects as Not selected."}
 - ${selected.has("translation") ? "Develop one translation topic." : "Set translation to Not selected."}
+- Blank directions must be chosen independently, not copied from another selected stage.
+- Reading C must use two distinct subjects even when both directions are blank.
 - Keep all selected concrete examples mutually distinct and commercially original.`,
     },
   ];

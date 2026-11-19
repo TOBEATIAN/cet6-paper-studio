@@ -30,6 +30,15 @@ export function RealExamImportModal({
   const { t } = useTranslation();
   const status = useRealExamImportStore((state) => state.status);
   const progress = useRealExamImportStore((state) => state.progress);
+  const progressCurrent = useRealExamImportStore(
+    (state) => state.progressCurrent,
+  );
+  const progressTotal = useRealExamImportStore((state) => state.progressTotal);
+  const progressStartedAt = useRealExamImportStore(
+    (state) => state.progressStartedAt,
+  );
+  const session = useRealExamImportStore((state) => state.session);
+  const activeSetId = useRealExamImportStore((state) => state.activeSetId);
   const draft = useRealExamImportStore((state) => state.draft);
   const answers = useRealExamImportStore((state) => state.answers);
   const bankCount = useRealExamImportStore((state) => state.bankCount);
@@ -45,6 +54,12 @@ export function RealExamImportModal({
     (state) => state.refreshBankCount,
   );
   const clear = useRealExamImportStore((state) => state.clear);
+  const selectSet = useRealExamImportStore((state) => state.selectSet);
+  const toggleSet = useRealExamImportStore((state) => state.toggleSet);
+  const updateSetRange = useRealExamImportStore(
+    (state) => state.updateSetRange,
+  );
+  const retrySet = useRealExamImportStore((state) => state.retrySet);
   const [mode, setMode] = useState<"full" | "section">("full");
   const [selectedStages, setSelectedStages] = useState<Cet6ContentStage[]>([
     "reading-c",
@@ -53,7 +68,9 @@ export function RealExamImportModal({
   const [audioFile, setAudioFile] = useState("");
   const [draftText, setDraftText] = useState("");
   const [draftError, setDraftError] = useState("");
+  const [now, setNow] = useState(() => Date.now());
   const busy = ["extracting", "searching", "applying"].includes(status);
+  const activeSet = session?.sets.find((item) => item.id === activeSetId);
   const localize = (value: string) => {
     const [first, ...details] = value.split("\n");
     const label = first.startsWith("realImport.") ? t(first) : first;
@@ -67,6 +84,12 @@ export function RealExamImportModal({
   useEffect(() => {
     void refreshBankCount();
   }, [refreshBankCount]);
+
+  useEffect(() => {
+    if (!busy || !progressStartedAt) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [busy, progressStartedAt]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -211,7 +234,7 @@ export function RealExamImportModal({
         </header>
 
         <div className="min-h-0 flex-1 overflow-auto p-5">
-          {!draft && (
+          {!session && (
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.7fr)]">
               <div className="rounded-lg border border-border p-4">
                 <p className="text-sm font-medium">{t("realImport.scope")}</p>
@@ -306,8 +329,133 @@ export function RealExamImportModal({
           {busy && (
             <div className="mt-4 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              {localize(progress) || t("realImport.working")}
+              <span>
+                {localize(progress) || t("realImport.working")}
+                {progressTotal > 0
+                  ? ` · ${progressCurrent}/${progressTotal}`
+                  : ""}
+                {progressStartedAt
+                  ? ` · ${formatElapsed(now - Date.parse(progressStartedAt))}`
+                  : ""}
+              </span>
             </div>
+          )}
+
+          {session && session.sets.length > 0 && (
+            <section className="mt-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-medium">
+                  {t("realImport.detectedSets", {
+                    count: session.sets.length,
+                  })}
+                </h3>
+                <span className="text-xs text-muted-foreground">
+                  {session.sourceFileName}
+                </span>
+              </div>
+              <div className="mt-2 grid gap-2 md:grid-cols-3">
+                {session.sets.map((item) => (
+                  <div
+                    key={item.id}
+                    className={
+                      item.id === activeSetId
+                        ? "rounded-lg border border-primary bg-primary/5 p-3"
+                        : "rounded-lg border border-border p-3"
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => selectSet(item.id)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <p className="truncate text-sm font-medium">
+                          {item.setLabel}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {t("realImport.pageRange", {
+                            start: item.pageStart,
+                            end: item.pageEnd,
+                          })}
+                        </p>
+                      </button>
+                      <input
+                        type="checkbox"
+                        checked={item.enabled}
+                        onChange={(event) =>
+                          toggleSet(item.id, event.currentTarget.checked)
+                        }
+                        aria-label={t("realImport.enableSet", {
+                          set: item.setLabel,
+                        })}
+                        className="mt-0.5 h-4 w-4 accent-primary"
+                      />
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+                      <span
+                        className={
+                          item.status === "error"
+                            ? "text-destructive"
+                            : "text-muted-foreground"
+                        }
+                      >
+                        {t(`realImport.setStatus.${item.status}`)}
+                      </span>
+                      {item.status === "error" ||
+                      item.status === "pending" ? (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void retrySet(item.id)}
+                          className="text-primary disabled:opacity-40"
+                        >
+                          {t("realImport.retrySet")}
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+                      <span>{t("realImport.pages")}</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={session.pages.length}
+                        value={item.pageStart}
+                        onChange={(event) =>
+                          updateSetRange(
+                            item.id,
+                            Number(event.currentTarget.value),
+                            item.pageEnd,
+                          )
+                        }
+                        aria-label={t("realImport.pageStart")}
+                        className="h-7 w-16 rounded border border-border bg-background px-1 text-center text-foreground"
+                      />
+                      <span>–</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={session.pages.length}
+                        value={item.pageEnd}
+                        onChange={(event) =>
+                          updateSetRange(
+                            item.id,
+                            item.pageStart,
+                            Number(event.currentTarget.value),
+                          )
+                        }
+                        aria-label={t("realImport.pageEnd")}
+                        className="h-7 w-16 rounded border border-border bg-background px-1 text-center text-foreground"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {activeSet?.error && (
+                <p className="mt-2 whitespace-pre-wrap text-xs text-destructive">
+                  {localize(activeSet.error)}
+                </p>
+              )}
+            </section>
           )}
 
           {draft && (
@@ -430,7 +578,7 @@ export function RealExamImportModal({
         </div>
 
         <footer className="flex justify-end gap-2 border-t border-border px-5 py-3">
-          {!draft ? (
+          {!session ? (
             <button
               type="button"
               disabled={
@@ -464,7 +612,9 @@ export function RealExamImportModal({
                 className={primaryBtn}
               >
                 <CheckCircle2 className="h-4 w-4" />
-                {t("realImport.apply")}
+                {t("realImport.applySelected", {
+                  count: session.sets.filter((item) => item.enabled).length,
+                })}
               </button>
             </>
           )}
@@ -531,4 +681,9 @@ function safeHost(url: string): string {
   } catch {
     return url;
   }
+}
+
+function formatElapsed(durationMs: number): string {
+  const seconds = Math.max(0, Math.floor(durationMs / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "../../i18n";
 import { SpecialtyTrainingModal } from "../../components/assistant/SpecialtyTrainingModal";
+import { SpecialtyStageTopicsSchema } from "../types/cet";
 
 const mocks = vi.hoisted(() => ({
   updateSettings: vi.fn(),
@@ -13,7 +14,11 @@ vi.mock("../../stores/configStore", () => ({
     selector: (state: {
       config: {
         settings: {
-          specialtyTraining: { selectedStages: string[]; focusTopic: string };
+          specialtyTraining: {
+            selectedStages: string[];
+            focusTopic: string;
+            stageTopics: ReturnType<typeof SpecialtyStageTopicsSchema.parse>;
+          };
         };
       };
       updateSettings: typeof mocks.updateSettings;
@@ -22,7 +27,11 @@ vi.mock("../../stores/configStore", () => ({
     selector({
       config: {
         settings: {
-          specialtyTraining: { selectedStages: [], focusTopic: "" },
+          specialtyTraining: {
+            selectedStages: [],
+            focusTopic: "",
+            stageTopics: SpecialtyStageTopicsSchema.parse({}),
+          },
         },
       },
       updateSettings: mocks.updateSettings,
@@ -44,7 +53,7 @@ describe("SpecialtyTrainingModal", () => {
       screen.getByRole("button", { name: "阅读 A · 选词填空" }),
     );
     await userEvent.type(
-      screen.getByLabelText("主题或场景（可选）"),
+      screen.getByLabelText("听力 B主题"),
       "校园科技",
     );
     await userEvent.click(
@@ -54,13 +63,21 @@ describe("SpecialtyTrainingModal", () => {
     expect(mocks.updateSettings).toHaveBeenCalledWith({
       specialtyTraining: {
         selectedStages: ["listening-b", "reading-a"],
-        focusTopic: "校园科技",
+        focusTopic: "",
+        stageTopics: {
+          ...SpecialtyStageTopicsSchema.parse({}),
+          "listening-b": "校园科技",
+        },
       },
     });
     expect(onStart).toHaveBeenCalledWith({
       mode: "specialty",
       selectedStages: ["listening-b", "reading-a"],
-      focusTopic: "校园科技",
+      focusTopic: "",
+      stageTopics: {
+        ...SpecialtyStageTopicsSchema.parse({}),
+        "listening-b": "校园科技",
+      },
     });
   });
 

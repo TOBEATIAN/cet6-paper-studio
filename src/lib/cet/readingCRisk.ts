@@ -125,6 +125,23 @@ export function collectReadingCRisks(
   return risks;
 }
 
+export function groupReadingCRisksForReview(
+  risks: readonly ReadingCRisk[],
+  size = 2,
+): ReadingCRisk[][] {
+  const byPassage = new Map<string, ReadingCRisk[]>();
+  for (const risk of risks) {
+    byPassage.set(risk.passage, [...(byPassage.get(risk.passage) ?? []), risk]);
+  }
+  return [...byPassage.values()].flatMap((items) => {
+    const groups: ReadingCRisk[][] = [];
+    for (let index = 0; index < items.length; index += size) {
+      groups.push(items.slice(index, index + size));
+    }
+    return groups;
+  });
+}
+
 export function buildReadingCRiskReviewPrompt(
   risks: readonly ReadingCRisk[],
 ): ApiMessage[] {

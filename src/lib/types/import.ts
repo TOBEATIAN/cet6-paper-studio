@@ -69,6 +69,7 @@ export const ImportedPaperDraftSchema = z.object({
   examDate: z.string().default(""),
   setLabel: z.string().default(""),
   sourceFileName: z.string().default(""),
+  sourceHash: z.string().default(""),
   listeningAudioPath: z.string().default(""),
   blocks: z.array(ImportedBlockSchema).default([]),
   warnings: z.array(z.string()).default([]),
@@ -87,6 +88,38 @@ export const ImportedPageDraftSchema = z.object({
 });
 
 export type ImportedPageDraft = z.infer<typeof ImportedPageDraftSchema>;
+
+export const OcrPageResultSchema = z.object({
+  pageNumber: z.number().int().positive(),
+  text: z.string().default(""),
+  blocks: z
+    .array(
+      z.object({
+        text: z.string(),
+        confidence: z.number().min(0).max(1),
+        box: z.array(z.tuple([z.number(), z.number()])).default([]),
+      }),
+    )
+    .default([]),
+  averageConfidence: z.number().min(0).max(1).default(0),
+  durationMs: z.number().nonnegative().default(0),
+  cached: z.boolean().default(false),
+  sourceHash: z.string().default(""),
+});
+
+export const OcrResponseSchema = z.object({
+  pages: z.array(OcrPageResultSchema),
+});
+
+export type OcrPageResult = z.infer<typeof OcrPageResultSchema>;
+
+export const ImportSetRangeSchema = z.object({
+  setLabel: z.string().min(1),
+  pageStart: z.number().int().positive(),
+  pageEnd: z.number().int().positive(),
+});
+
+export type ImportSetRange = z.infer<typeof ImportSetRangeSchema>;
 
 export const AnswerSourceSchema = z.object({
   title: z.string().default(""),
@@ -123,6 +156,44 @@ export const AnswerSearchResultSchema = z.object({
 
 export type AnswerSearchRow = z.infer<typeof AnswerSearchRowSchema>;
 export type AnswerSearchResult = z.infer<typeof AnswerSearchResultSchema>;
+
+export const ImportedSetDraftSchema = z.object({
+  id: z.string().min(1),
+  setLabel: z.string().min(1),
+  examDate: z.string().default(""),
+  pageStart: z.number().int().positive(),
+  pageEnd: z.number().int().positive(),
+  enabled: z.boolean().default(true),
+  status: z
+    .enum(["pending", "extracting", "ready", "error"])
+    .default("pending"),
+  error: z.string().default(""),
+  draft: ImportedPaperDraftSchema.optional(),
+  answers: AnswerSearchResultSchema.optional(),
+});
+
+export const ImportSessionSchema = z.object({
+  version: z.number().int().default(1),
+  sourceHash: z.string().default(""),
+  sourceFileName: z.string().default(""),
+  listeningAudioPath: z.string().default(""),
+  mode: ImportModeSchema.default("full"),
+  selectedStages: z.array(Cet6ContentStageSchema).default([]),
+  pages: z
+    .array(
+      z.object({
+        pageNumber: z.number().int().positive(),
+        text: z.string().default(""),
+        confidence: z.number().min(0).max(1).default(1),
+        cached: z.boolean().default(false),
+      }),
+    )
+    .default([]),
+  sets: z.array(ImportedSetDraftSchema).default([]),
+});
+
+export type ImportedSetDraft = z.infer<typeof ImportedSetDraftSchema>;
+export type ImportSession = z.infer<typeof ImportSessionSchema>;
 
 export const AnswerCandidateResponseSchema = z.object({
   answers: z.array(

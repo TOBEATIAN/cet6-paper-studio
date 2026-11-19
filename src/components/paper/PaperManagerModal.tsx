@@ -1,17 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Check,
   Copy,
+  Archive,
+  ArchiveRestore,
   FileText,
   FolderOpen,
   Pencil,
   Plus,
+  Search,
   Trash2,
   X,
 } from "lucide-react";
 import { usePaperStore } from "../../stores/paperStore";
 import { iconBtn, inputCls, primaryBtn, secondaryBtn } from "../../lib/ui/styles";
+
+type PaperFilter =
+  | "all"
+  | "full"
+  | "specialty"
+  | "imported"
+  | "draft"
+  | "archived";
+type PaperSort = "updated" | "created" | "title";
 
 interface PaperManagerModalProps {
   onClose: () => void;
@@ -27,16 +39,52 @@ export function PaperManagerModal({ onClose }: PaperManagerModalProps) {
   const renamePaper = usePaperStore((s) => s.renamePaper);
   const duplicatePaper = usePaperStore((s) => s.duplicatePaper);
   const deletePaper = usePaperStore((s) => s.deletePaper);
+  const archivePapers = usePaperStore((s) => s.archivePapers);
   const [selectedId, setSelectedId] = useState(activePaperId);
   const [titleDraft, setTitleDraft] = useState(
     papers.find((paper) => paper.id === activePaperId)?.title ?? "",
   );
+  const [filter, setFilter] = useState<PaperFilter>("all");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<PaperSort>("updated");
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+
+  const visiblePapers = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return papers
+      .filter((paper) => {
+        if (filter === "archived") return paper.archived;
+        if (paper.archived) return false;
+        if (filter !== "all" && paper.kind !== filter) return false;
+        if (!normalizedQuery) return true;
+        return [
+          paper.title,
+          paper.examDate,
+          paper.setLabel,
+          paper.topicSummary,
+          ...paper.stageLabels,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedQuery);
+      })
+      .sort((left, right) => {
+        if (sort === "title") return left.title.localeCompare(right.title, "zh-CN");
+        if (sort === "created") return right.createdAt.localeCompare(left.createdAt);
+        return right.updatedAt.localeCompare(left.updatedAt);
+      });
+  }, [filter, papers, query, sort]);
 
   const selected =
-    papers.find((paper) => paper.id === selectedId) ?? papers[0] ?? null;
+    visiblePapers.find((paper) => paper.id === selectedId) ??
+    visiblePapers[0] ??
+    null;
 
   useEffect(() => {
-    const next = papers.find((paper) => paper.id === selectedId) ?? papers[0] ?? null;
+    const next =
+      visiblePapers.find((paper) => paper.id === selectedId) ??
+      visiblePapers[0] ??
+      null;
     if (!next) {
       setSelectedId(null);
       setTitleDraft("");
@@ -46,7 +94,7 @@ export function PaperManagerModal({ onClose }: PaperManagerModalProps) {
       setSelectedId(next.id);
       setTitleDraft(next.title);
     }
-  }, [papers, selectedId]);
+  }, [selectedId, visiblePapers]);
 
   function selectPaper(id: string) {
     const paper = papers.find((item) => item.id === id);
@@ -69,6 +117,22 @@ export function PaperManagerModal({ onClose }: PaperManagerModalProps) {
   async function saveTitle() {
     if (!selected) return;
     await renamePaper(selected.id, titleDraft);
+  }
+
+  function toggleChecked(id: string) {
+    if (id === activePaperId) return;
+    setCheckedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function archiveChecked() {
+    if (checkedIds.size === 0) return;
+    await archivePapers([...checkedIds], filter !== "archived");
+    setCheckedIds(new Set());
   }
 
   return (
@@ -118,29 +182,136 @@ export function PaperManagerModal({ onClose }: PaperManagerModalProps) {
               <Plus className="h-4 w-4" />
               {t("paperLibrary.newPaper")}
             </button>
+            <label className="relative mt-2 block">
+              <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <input
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.currentTarget.value);
+                  setCheckedIds(new Set());
+                }}
+                placeholder={t("paperLibrary.searchPlaceholder")}
+                aria-label={t("paperLibrary.search")}
+                className={`${inputCls} h-9 pl-8 text-xs`}
+              />
+            </label>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <select
+                value={filter}
+                aria-label={t("paperLibrary.filter")}
+                onChange={(event) => {
+                  setFilter(event.currentTarget.value as PaperFilter);
+                  setCheckedIds(new Set());
+                }}
+                className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground"
+              >
+                {(
+                  [
+                    "all",
+                    "full",
+                    "specialty",
+                    "imported",
+                    "draft",
+                    "archived",
+                  ] as const
+                ).map((value) => (
+                  <option key={value} value={value}>
+                    {t(`paperLibrary.filterOption.${value}`)}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={sort}
+                aria-label={t("paperLibrary.sort")}
+                onChange={(event) =>
+                  setSort(event.currentTarget.value as PaperSort)
+                }
+                className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground"
+              >
+                {(["updated", "created", "title"] as const).map((value) => (
+                  <option key={value} value={value}>
+                    {t(`paperLibrary.sortOption.${value}`)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-2 rounded border border-border bg-background px-2 py-1.5 text-xs">
+              <span className="text-muted-foreground">
+                {t("paperLibrary.selectedCount", { count: checkedIds.size })}
+              </span>
+              <button
+                type="button"
+                disabled={checkedIds.size === 0}
+                onClick={() => void archiveChecked()}
+                className="inline-flex items-center gap-1 text-primary disabled:opacity-40"
+              >
+                {filter === "archived" ? (
+                  <ArchiveRestore className="h-3.5 w-3.5" />
+                ) : (
+                  <Archive className="h-3.5 w-3.5" />
+                )}
+                {t(
+                  filter === "archived"
+                    ? "paperLibrary.restore"
+                    : "paperLibrary.archive",
+                )}
+              </button>
+            </div>
             <div className="mt-3 min-h-0 flex-1 overflow-auto">
               <ul className="space-y-1">
-                {papers.map((paper) => (
+                {visiblePapers.map((paper) => (
                   <li key={paper.id}>
-                    <button
-                      type="button"
-                      onClick={() => selectPaper(paper.id)}
+                    <div
                       className={
                         paper.id === selected?.id
-                          ? "flex w-full items-center gap-2 rounded-md bg-card px-3 py-2 text-left text-sm text-foreground shadow-sm ring-1 ring-border transition-colors cursor-pointer"
-                          : "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer"
+                          ? "flex items-center gap-2 rounded-md bg-card px-2 py-2 text-sm text-foreground shadow-sm ring-1 ring-border"
+                          : "flex items-center gap-2 rounded-md px-2 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
                       }
                     >
-                      <FileText className="h-4 w-4 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {paper.title}
-                      </span>
-                      {paper.id === activePaperId && (
-                        <Check className="h-4 w-4 shrink-0 text-primary" />
-                      )}
-                    </button>
+                      <input
+                        type="checkbox"
+                        checked={checkedIds.has(paper.id)}
+                        disabled={paper.id === activePaperId}
+                        onChange={() => toggleChecked(paper.id)}
+                        aria-label={t("paperLibrary.selectPaper", {
+                          title: paper.title,
+                        })}
+                        className="h-3.5 w-3.5 accent-primary"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => selectPaper(paper.id)}
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      >
+                        <FileText className="h-4 w-4 shrink-0" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">{paper.title}</span>
+                          <span className="mt-0.5 flex flex-wrap gap-1">
+                            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">
+                              {t(`paperLibrary.kind.${paper.kind}`)}
+                            </span>
+                            {paper.stageLabels.slice(0, 2).map((label) => (
+                              <span
+                                key={label}
+                                className="rounded border border-border px-1.5 py-0.5 text-[10px]"
+                              >
+                                {label}
+                              </span>
+                            ))}
+                          </span>
+                        </span>
+                        {paper.id === activePaperId && (
+                          <Check className="h-4 w-4 shrink-0 text-primary" />
+                        )}
+                      </button>
+                    </div>
                   </li>
                 ))}
+                {visiblePapers.length === 0 && (
+                  <li className="rounded border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+                    {t("paperLibrary.noMatches")}
+                  </li>
+                )}
               </ul>
             </div>
           </aside>

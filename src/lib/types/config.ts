@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SpecialtyStageTopicsSchema } from "./cet";
 
 /**
  * App configuration model. Persisted to `config.json` in the user-chosen data
@@ -508,6 +509,7 @@ export const AppSettingsSchema = z.object({
         )
         .default([]),
       focusTopic: z.string().default(""),
+      stageTopics: SpecialtyStageTopicsSchema.prefault({}),
     })
     .prefault({}),
   /** Max number of historical messages sent to the model per turn (0 = unlimited). */
@@ -532,12 +534,38 @@ export const AppConfigSchema = AppConfigBaseSchema.transform((config) => {
   );
   const agents = [existingCet ?? cetAgent];
   const activeAgentId: string = "builtin-cet6-authoring";
+  const specialty = config.settings.specialtyTraining;
+  const specialtyTopics = {
+    ...specialty.stageTopics,
+    "reading-c": { ...specialty.stageTopics["reading-c"] },
+  };
+  if (
+    specialty.focusTopic.trim() &&
+    !Object.values(specialtyTopics).some((value) =>
+      typeof value === "string"
+        ? Boolean(value.trim())
+        : Boolean(value.first.trim() || value.second.trim()),
+    ) &&
+    specialty.selectedStages[0]
+  ) {
+    const firstStage = specialty.selectedStages[0];
+    if (firstStage === "reading-c") {
+      specialtyTopics["reading-c"].first = specialty.focusTopic.trim();
+    } else {
+      specialtyTopics[firstStage] = specialty.focusTopic.trim();
+    }
+  }
 
   return {
     ...config,
     version: CONFIG_SCHEMA_VERSION,
     settings: {
       ...config.settings,
+      specialtyTraining: {
+        ...specialty,
+        focusTopic: "",
+        stageTopics: specialtyTopics,
+      },
       tts: {
         ...config.settings.tts,
         targetWpm:

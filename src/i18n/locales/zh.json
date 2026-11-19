@@ -32,6 +32,10 @@
     "stagesLabel": "选择训练板块（可多选）",
     "focusTopic": "主题或场景（可选）",
     "focusPlaceholder": "例如：校园科技、环境保护、学习方法",
+    "passageOneTopic": "Passage One 主题（可选）",
+    "passageTwoTopic": "Passage Two 主题（可选）",
+    "randomIfEmpty": "留空则独立随机选题",
+    "topicForStage": "{{stage}}主题",
     "start": "开始生成专项卷",
     "starting": "正在启动…",
     "cancel": "取消",
@@ -54,6 +58,20 @@
     "bankCount": "本地答案库：{{count}} 道题",
     "importBank": "导入答案库",
     "exportBank": "导出答案库",
+    "detectedSets": "识别到 {{count}} 套试卷",
+    "pageRange": "第 {{start}}–{{end}} 页",
+    "pages": "页范围",
+    "pageStart": "起始页",
+    "pageEnd": "结束页",
+    "enableSet": "启用 {{set}}",
+    "retrySet": "重新识别",
+    "applySelected": "确认并创建 {{count}} 张试卷",
+    "setStatus": {
+      "pending": "等待识别",
+      "extracting": "识别中",
+      "ready": "草稿已就绪",
+      "error": "识别失败"
+    },
     "noFiles": "尚未选择文件",
     "optional": "未附加",
     "working": "正在处理…",
@@ -84,6 +102,9 @@
     },
     "progress": {
       "render": "正在渲染导入页面…",
+      "ocrBatch": "正在本地 OCR 识别扫描页…",
+      "structureSets": "正在整理套次与题目结构…",
+      "setsReady": "全部套卷草稿已就绪。",
       "recognize": "正在识别页面结构与题目…",
       "draftReady": "草稿已建立，请核对结构和答案。",
       "manualNoKey": "未配置联网搜索密钥，请手工填写答案。",
@@ -102,7 +123,8 @@
       "draftInvalid": "草稿结构还不完整，请按下方明细修改后再应用。",
       "noJson": "模型没有返回可解析的导入草稿。",
       "tooManyPages": "PDF 页数过多，请拆分后导入。",
-      "canvasUnavailable": "当前环境无法渲染 PDF 页面。"
+      "canvasUnavailable": "当前环境无法渲染 PDF 页面。",
+      "noEnabledSets": "请至少启用一套试卷。"
     }
   },
   "settings": {
@@ -576,7 +598,35 @@
     "updatedAt": "更新时间",
     "open": "打开试卷",
     "duplicate": "复制试卷",
-    "empty": "暂无试卷"
+    "empty": "暂无试卷",
+    "search": "搜索试卷",
+    "searchPlaceholder": "搜索标题、板块、套次或主题",
+    "filter": "试卷分类",
+    "sort": "排序",
+    "selectedCount": "已选 {{count}} 张",
+    "archive": "归档",
+    "restore": "恢复",
+    "noMatches": "当前条件下没有试卷",
+    "selectPaper": "选择试卷：{{title}}",
+    "filterOption": {
+      "all": "全部",
+      "full": "整卷",
+      "specialty": "专项",
+      "imported": "真题",
+      "draft": "草稿",
+      "archived": "已归档"
+    },
+    "sortOption": {
+      "updated": "最近更新",
+      "created": "创建时间",
+      "title": "标题"
+    },
+    "kind": {
+      "full": "整卷",
+      "specialty": "专项",
+      "imported": "真题",
+      "draft": "草稿"
+    }
   },
   "review": {
     "title": "复盘",

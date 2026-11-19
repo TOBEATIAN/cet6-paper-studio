@@ -3,6 +3,7 @@ import type { ChatMessage } from "../types/library";
 import type { Question } from "../types/exam";
 import {
   CET6_CONTENT_STAGES,
+  SpecialtyStageTopicsSchema,
   type Cet6ContentStage,
 } from "../types/cet";
 import { defaultAppConfig } from "../types/config";
@@ -440,6 +441,10 @@ describe("cet6GenerationStore", () => {
     await useCet6GenerationStore.getState().start({
       mode: "specialty",
       selectedStages: ["listening-b", "reading-a"],
+      stageTopics: {
+        ...SpecialtyStageTopicsSchema.parse({}),
+        "listening-b": "campus technology",
+      },
       focusTopic: "campus technology",
     });
 

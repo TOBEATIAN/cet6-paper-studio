@@ -32,6 +32,10 @@
     "stagesLabel": "Choose one or more sections",
     "focusTopic": "Topic or scenario (optional)",
     "focusPlaceholder": "For example: campus technology, the environment, study methods",
+    "passageOneTopic": "Passage One topic (optional)",
+    "passageTwoTopic": "Passage Two topic (optional)",
+    "randomIfEmpty": "Leave empty for an independent random topic",
+    "topicForStage": "{{stage}} topic",
     "start": "Generate specialty paper",
     "starting": "Starting…",
     "cancel": "Cancel",
@@ -54,6 +58,20 @@
     "bankCount": "Local answer bank: {{count}} answers",
     "importBank": "Import answer bank",
     "exportBank": "Export answer bank",
+    "detectedSets": "{{count}} paper sets detected",
+    "pageRange": "Pages {{start}}–{{end}}",
+    "pages": "Pages",
+    "pageStart": "Start page",
+    "pageEnd": "End page",
+    "enableSet": "Enable {{set}}",
+    "retrySet": "Recognize again",
+    "applySelected": "Confirm and create {{count}} papers",
+    "setStatus": {
+      "pending": "Waiting",
+      "extracting": "Recognizing",
+      "ready": "Draft ready",
+      "error": "Failed"
+    },
     "noFiles": "No files selected",
     "optional": "Not attached",
     "working": "Working…",
@@ -84,6 +102,9 @@
     },
     "progress": {
       "render": "Rendering imported pages…",
+      "ocrBatch": "Running local OCR on scanned pages…",
+      "structureSets": "Detecting sittings and paper structure…",
+      "setsReady": "All selected paper drafts are ready.",
       "recognize": "Recognizing page structure and questions…",
       "draftReady": "Draft ready. Review the structure and answers.",
       "manualNoKey": "No web-search key is configured. Enter answers manually.",
@@ -102,7 +123,8 @@
       "draftInvalid": "The draft structure is incomplete. Fix the details below before applying.",
       "noJson": "The model did not return a parseable import draft.",
       "tooManyPages": "This PDF has too many pages. Split it before importing.",
-      "canvasUnavailable": "PDF pages cannot be rendered in this environment."
+      "canvasUnavailable": "PDF pages cannot be rendered in this environment.",
+      "noEnabledSets": "Enable at least one paper set."
     }
   },
   "settings": {
@@ -576,7 +598,35 @@
     "updatedAt": "Updated",
     "open": "Open paper",
     "duplicate": "Duplicate paper",
-    "empty": "No papers yet"
+    "empty": "No papers yet",
+    "search": "Search papers",
+    "searchPlaceholder": "Search title, section, sitting or topic",
+    "filter": "Paper category",
+    "sort": "Sort",
+    "selectedCount": "{{count}} selected",
+    "archive": "Archive",
+    "restore": "Restore",
+    "noMatches": "No papers match these filters",
+    "selectPaper": "Select paper: {{title}}",
+    "filterOption": {
+      "all": "All",
+      "full": "Full papers",
+      "specialty": "Specialty",
+      "imported": "Real exams",
+      "draft": "Drafts",
+      "archived": "Archived"
+    },
+    "sortOption": {
+      "updated": "Recently updated",
+      "created": "Created",
+      "title": "Title"
+    },
+    "kind": {
+      "full": "Full",
+      "specialty": "Specialty",
+      "imported": "Real exam",
+      "draft": "Draft"
+    }
   },
   "review": {
     "title": "Review",

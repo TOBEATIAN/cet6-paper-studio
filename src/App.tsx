@@ -195,8 +195,7 @@ export default function App() {
       return;
     }
     if (paper.questions.length > 0) {
-      window.alert(t("cet6.nonEmptyPaper"));
-      return;
+      await usePaperStore.getState().newPaper();
     }
     setDrawerOpen(true);
     void startCet6Generation(scope);

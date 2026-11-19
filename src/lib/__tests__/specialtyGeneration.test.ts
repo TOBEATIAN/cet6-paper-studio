@@ -2,19 +2,23 @@ import { describe, expect, it } from "vitest";
 import { buildCet6SpecialtyBlueprintPrompt } from "../cet/pipelinePrompts";
 import { buildCet6Paper } from "../cet/generate";
 import type { Question } from "../types/exam";
+import { SpecialtyStageTopicsSchema } from "../types/cet";
 
 describe("specialty generation", () => {
   it("builds a blueprint prompt only for selected stages", () => {
     const prompt = buildCet6SpecialtyBlueprintPrompt(
       ["listening-b", "reading-a"],
-      "校园科技",
+      {
+        ...SpecialtyStageTopicsSchema.parse({}),
+        "listening-b": "校园科技",
+      },
     )
       .map((message) => message.content)
       .join("\n");
     expect(prompt).toContain("Develop only these listening cases: listening-b");
     expect(prompt).toContain("Develop only these reading forms: reading-a");
     expect(prompt).toContain("Set writing to Not selected");
-    expect(prompt).toContain("Optional user focus: 校园科技");
+    expect(prompt).toContain("- listening-b: 校园科技");
   });
 
   it("preserves section numbering and score for a one-section paper", () => {
@@ -41,6 +45,7 @@ describe("specialty generation", () => {
       {
         mode: "specialty",
         selectedStages: ["listening-b"],
+        stageTopics: SpecialtyStageTopicsSchema.parse({}),
         focusTopic: "campus",
       },
     );

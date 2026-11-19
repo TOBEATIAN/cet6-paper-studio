@@ -3,6 +3,7 @@ import type { Question } from "../types/exam";
 import {
   applyReadingCRiskDecisions,
   collectReadingCRisks,
+  groupReadingCRisksForReview,
   isValidReadingCRiskReview,
 } from "../cet/readingCRisk";
 import { auditCet6Stage } from "../cet/quality/audit";
@@ -46,6 +47,20 @@ describe("Reading C strong-distractor adjudication", () => {
       expect.arrayContaining(["same-sentence", "dual-support"]),
     );
     expect(risks[0].supportSentence).toContain("30 percent");
+  });
+
+  it("groups reviews by passage with at most two risks per request", () => {
+    const base = collectReadingCRisks([riskyQuestion()])[0];
+    const risks = [0, 1, 2, 3, 4].map((index) => ({
+      ...base,
+      questionId: `q${46 + index}`,
+      questionNumber: 46 + index,
+      letter: ["A", "B", "C", "D"][index % 4],
+    }));
+    const groups = groupReadingCRisksForReview(risks, 2);
+    expect(groups).toHaveLength(3);
+    expect(groups.map((group) => group.length)).toEqual([2, 2, 1]);
+    expect(groups.every((group) => new Set(group.map((risk) => risk.passage)).size === 1)).toBe(true);
   });
 
   it("rejects generic reviews and accepts a verbatim passage anchor", () => {

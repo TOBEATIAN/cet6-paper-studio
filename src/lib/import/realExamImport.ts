@@ -9,7 +9,10 @@ import {
   type ImportedPageDraft,
   type ImportedPaperDraft,
 } from "../types/import";
-import type { Cet6ContentStage } from "../types/cet";
+import {
+  SpecialtyStageTopicsSchema,
+  type Cet6ContentStage,
+} from "../types/cet";
 import type { ExamPaper, Question } from "../types/exam";
 import { CET6_STAGE_SPECS } from "../cet/structure";
 import { buildCet6Paper } from "../cet/generate";
@@ -77,6 +80,7 @@ export function mergeImportedPages(
     mode: "full" | "section";
     selectedStages: Cet6ContentStage[];
     sourceFileName: string;
+    sourceHash?: string;
     listeningAudioPath?: string;
   },
 ): ImportedPaperDraft {
@@ -137,6 +141,7 @@ export function mergeImportedPages(
     examDate: pages.find((page) => page.examDate.trim())?.examDate ?? "",
     setLabel: pages.find((page) => page.setLabel.trim())?.setLabel ?? "",
     sourceFileName: input.sourceFileName,
+    sourceHash: input.sourceHash ?? "",
     listeningAudioPath: input.listeningAudioPath ?? "",
     blocks: [...blocks.values()],
     warnings: [...new Set(warnings)].filter(Boolean),
@@ -221,22 +226,38 @@ export function importedDraftToPaper(
     {
       mode: "specialty",
       selectedStages,
+      stageTopics: SpecialtyStageTopicsSchema.parse({}),
       focusTopic: "",
     },
   );
   return {
     ...paper,
-    title: draft.title.trim() || paper.title,
+    title: importedPaperTitle(draft) || paper.title,
     practiceScope: {
       mode: "imported",
       selectedStages,
       focusTopic: "",
       sourceFileName: draft.sourceFileName,
+      sourceHash: draft.sourceHash,
       examDate: draft.examDate,
       setLabel: draft.setLabel,
       listeningAudioPath: draft.listeningAudioPath,
     },
   };
+}
+
+function importedPaperTitle(draft: ImportedPaperDraft): string {
+  const date = formatExamDate(draft.examDate);
+  const set = draft.setLabel.trim();
+  if (date || set) {
+    return [date, "六级真题", set].filter(Boolean).join(" ");
+  }
+  return draft.title.trim();
+}
+
+function formatExamDate(value: string): string {
+  const match = value.trim().match(/^(\d{4})[-年](\d{1,2})(?:月)?$/);
+  return match ? `${match[1]}年${Number(match[2])}月` : value.trim();
 }
 
 export function importedPaperIssues(paper: ExamPaper): string[] {

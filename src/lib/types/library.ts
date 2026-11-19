@@ -7,10 +7,17 @@ export const PaperMetaSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   questionCount: z.number().int().nonnegative(),
+  kind: z.enum(["full", "specialty", "imported", "draft"]).default("full"),
+  stageLabels: z.array(z.string()).default([]),
+  examDate: z.string().default(""),
+  setLabel: z.string().default(""),
+  sourceHash: z.string().default(""),
+  topicSummary: z.string().default(""),
+  archived: z.boolean().default(false),
 });
 
 export const PaperIndexSchema = z.object({
-  version: z.number().int().default(1),
+  version: z.number().int().default(2),
   activePaperId: z.string().nullable(),
   papers: z.array(PaperMetaSchema).default([]),
 });

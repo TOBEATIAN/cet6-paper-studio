@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ExamPaperSchema } from "../types/exam";
+import { PaperIndexSchema } from "../types/library";
 import {
   createPaperIndex,
   removePaperMeta,
@@ -31,6 +32,8 @@ describe("paper library helpers", () => {
       id: "p1",
       title: "Alpha",
       questionCount: 1,
+      kind: "full",
+      archived: false,
     });
   });
 
@@ -49,5 +52,27 @@ describe("paper library helpers", () => {
     index = removePaperMeta(index, "p2");
     expect(index.activePaperId).toBe("p1");
     expect(index.papers).toHaveLength(1);
+  });
+
+  it("migrates version-1 metadata defaults without losing the active paper", () => {
+    const index = PaperIndexSchema.parse({
+      version: 1,
+      activePaperId: "old",
+      papers: [
+        {
+          id: "old",
+          title: "Old paper",
+          createdAt: "2026-01-01T00:00:00Z",
+          updatedAt: "2026-01-02T00:00:00Z",
+          questionCount: 57,
+        },
+      ],
+    });
+    expect(index.activePaperId).toBe("old");
+    expect(index.papers[0]).toMatchObject({
+      kind: "full",
+      archived: false,
+      stageLabels: [],
+    });
   });
 });

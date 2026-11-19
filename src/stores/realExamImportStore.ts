@@ -3,6 +3,8 @@ import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import type { Cet6ContentStage } from "../lib/types/cet";
 import type {
   AnswerSearchResult,
+  ImportSession,
+  ImportedSetDraft,
   ImportedPaperDraft,
 } from "../lib/types/import";
 import {
@@ -23,9 +25,17 @@ import {
 } from "../lib/import/answerBank";
 import { AnswerBankSchema } from "../lib/types/answerBank";
 import {
-  importedPageInstruction,
+  importedTextInstruction,
+  importSourceHash,
   readImportFileAsPageImages,
 } from "../lib/import/pdfPages";
+import {
+  detectExamDate,
+  detectSetRanges,
+  setPageText,
+} from "../lib/import/realExamSets";
+import { ImportSessionSchema } from "../lib/types/import";
+import { ImportedPaperDraftSchema } from "../lib/types/import";
 import * as storage from "../lib/storage/tauri";
 import { useConfigStore } from "./configStore";
 import { usePaperStore } from "./paperStore";
@@ -41,6 +51,11 @@ type ImportStatus =
 interface RealExamImportState {
   status: ImportStatus;
   progress: string;
+  progressCurrent: number;
+  progressTotal: number;
+  progressStartedAt: string | null;
+  session: ImportSession | null;
+  activeSetId: string | null;
   draft: ImportedPaperDraft | null;
   answers: AnswerSearchResult | null;
   bankCount: number;
@@ -52,6 +67,11 @@ interface RealExamImportState {
     listeningAudioPath?: string;
   }) => Promise<void>;
   searchAnswers: () => Promise<void>;
+  searchSetAnswers: (id: string) => Promise<void>;
+  selectSet: (id: string) => void;
+  toggleSet: (id: string, enabled: boolean) => void;
+  updateSetRange: (id: string, pageStart: number, pageEnd: number) => void;
+  retrySet: (id: string) => Promise<void>;
   replaceDraft: (draft: ImportedPaperDraft) => void;
   updateAnswer: (
     stage: Cet6ContentStage,
@@ -66,9 +86,32 @@ interface RealExamImportState {
   clear: () => void;
 }
 
+function updateSet(
+  get: () => RealExamImportState,
+  set: (partial: Partial<RealExamImportState>) => void,
+  id: string,
+  patch: Partial<ImportedSetDraft>,
+): ImportedSetDraft | null {
+  const session = get().session;
+  if (!session) return null;
+  let updated: ImportedSetDraft | null = null;
+  const sets = session.sets.map((item) => {
+    if (item.id !== id) return item;
+    updated = { ...item, ...patch };
+    return updated;
+  });
+  set({ session: { ...session, sets } });
+  return updated;
+}
+
 export const useRealExamImportStore = create<RealExamImportState>((set, get) => ({
   status: "idle",
   progress: "",
+  progressCurrent: 0,
+  progressTotal: 0,
+  progressStartedAt: null,
+  session: null,
+  activeSetId: null,
   draft: null,
   answers: null,
   bankCount: 0,
@@ -89,49 +132,117 @@ export const useRealExamImportStore = create<RealExamImportState>((set, get) => 
       set({ status: "error", error: "realImport.errors.keyRequired" });
       return;
     }
-    set({ status: "extracting", progress: "realImport.progress.render", error: "" });
+    const startedAt = new Date().toISOString();
+    set({
+      status: "extracting",
+      progress: "realImport.progress.render",
+      progressCurrent: 0,
+      progressTotal: 0,
+      progressStartedAt: startedAt,
+      session: null,
+      activeSetId: null,
+      error: "",
+    });
     try {
       const pages = await readImportFileAsPageImages(input.paths);
+      const sourceHash = await importSourceHash(input.paths);
       if (pages.length === 0) throw new Error("realImport.errors.noPages");
-      const pageDrafts = [];
-      for (let offset = 0; offset < pages.length; offset += 2) {
-        set({ progress: "realImport.progress.recognize" });
-        const reply = await storage.extractImageDataWithAi({
-          baseUrl: provider.baseUrl,
-          apiKey,
-          model: provider.model,
-          imageDataUrls: pages
-            .slice(offset, offset + 2)
-            .map((page) => page.dataUrl),
-          instruction: `${importedPageInstruction({
-            mode: input.mode,
-            selectedStages: input.selectedStages,
-          })}
-
-PDF text layer, when available:
-${pages
-  .slice(offset, offset + 2)
-  .map((page) => page.text)
-  .filter(Boolean)
-  .join("\n")
-  .slice(0, 12_000)}`,
-          maxTokens: Math.max(provider.maxTokens ?? 0, 16_384),
+      const scanned = pages.filter(
+        (page) => page.text.replace(/\s+/g, "").length < 80,
+      );
+      const ocrByPage = new Map<
+        number,
+        { text: string; confidence: number; cached: boolean }
+      >();
+      for (let offset = 0; offset < scanned.length; offset += 5) {
+        const chunk = scanned.slice(offset, offset + 5);
+        set({
+          progress: "realImport.progress.ocrBatch",
+          progressCurrent: offset,
+          progressTotal: scanned.length,
         });
-        pageDrafts.push(parseImportedPageDraft(reply));
+        const ocr = await storage.ocrImportPages({
+          dataDir: configState.dataDir ?? "",
+          sourceHash,
+          pages: chunk.map((page) => ({
+            pageNumber: page.pageNumber,
+            imageDataUrl: page.dataUrl,
+          })),
+        });
+        for (const result of ocr) {
+          ocrByPage.set(result.pageNumber, {
+            text: result.text,
+            confidence: result.averageConfidence,
+            cached: result.cached,
+          });
+        }
+        set({ progressCurrent: Math.min(offset + chunk.length, scanned.length) });
       }
-      const draft = mergeImportedPages(pageDrafts, {
+
+      const textPages = pages.map((page) => {
+        const ocr = ocrByPage.get(page.pageNumber);
+        const text =
+          page.text.replace(/\s+/g, "").length >= 80 ? page.text : ocr?.text ?? "";
+        return {
+          pageNumber: page.pageNumber,
+          text,
+          confidence:
+            page.text.replace(/\s+/g, "").length >= 80
+              ? 1
+              : ocr?.confidence ?? 0,
+          cached: ocr?.cached ?? false,
+        };
+      });
+      const ranges = detectSetRanges(textPages);
+      const sets: ImportedSetDraft[] = ranges.map((range) => ({
+        id: `${range.pageStart}-${range.pageEnd}`,
+        setLabel: range.setLabel,
+        examDate: detectExamDate(
+          setPageText(textPages, range).slice(0, 5_000),
+        ),
+        pageStart: range.pageStart,
+        pageEnd: range.pageEnd,
+        enabled: true,
+        status: "pending",
+        error: "",
+      }));
+      const session = ImportSessionSchema.parse({
+        sourceHash,
+        sourceFileName: input.paths.map(fileName).join(", "),
+        listeningAudioPath: input.listeningAudioPath ?? "",
         mode: input.mode,
         selectedStages: input.selectedStages,
-        sourceFileName: input.paths.map(fileName).join(", "),
-        listeningAudioPath: input.listeningAudioPath,
+        pages: textPages,
+        sets,
       });
       set({
-        draft,
-        status: "ready",
-        progress: "realImport.progress.draftReady",
-        answers: answerTableForDraft(draft),
+        session,
+        activeSetId: sets[0]?.id ?? null,
+        draft: null,
+        answers: null,
+        status: "extracting",
+        progress: "realImport.progress.structureSets",
+        progressCurrent: 0,
+        progressTotal: sets.length,
       });
-      await get().searchAnswers();
+
+      for (const [index, item] of sets.entries()) {
+        set({
+          progressCurrent: index,
+          activeSetId: item.id,
+        });
+        await get().retrySet(item.id);
+      }
+      const first = get().session?.sets[0];
+      set({
+        status: "ready",
+        progress: "realImport.progress.setsReady",
+        progressCurrent: sets.length,
+        activeSetId: first?.id ?? null,
+        draft: first?.draft ?? null,
+        answers: first?.answers ?? null,
+        error: first?.error ?? "",
+      });
     } catch (error) {
       set({
         status: "error",
@@ -141,13 +252,20 @@ ${pages
   },
 
   searchAnswers: async () => {
-    const draft = get().draft;
-    if (!draft) return;
+    const id = get().activeSetId;
+    if (id) await get().searchSetAnswers(id);
+  },
+
+  searchSetAnswers: async (id) => {
+    const item = get().session?.sets.find((candidate) => candidate.id === id);
+    const draft = item?.draft;
+    if (!item || !draft) return;
     const { config, getWebSearchApiKey, activeConfig, dataDir } =
       useConfigStore.getState();
     const bank = await loadLocalBank(dataDir);
     const bankTable = lookupBankAnswers(draft, bank);
-    set({ bankCount: bank.entries.length, answers: bankTable });
+    updateSet(get, set, id, { answers: bankTable });
+    set({ bankCount: bank.entries.length });
     if (
       bankTable.rows.every(
         (row) => row.status !== "missing" && row.status !== "conflict",
@@ -156,7 +274,12 @@ ${pages
         block.questions.every((question) => Boolean(question.answerLetter)),
       )
     ) {
-      set({ progress: "realImport.progress.bankHit" });
+      updateSet(get, set, id, {
+        answers: bankTable,
+      });
+      if (get().activeSetId === id) {
+        set({ draft, answers: bankTable, progress: "realImport.progress.bankHit" });
+      }
       return;
     }
     const search = config.settings.webSearch;
@@ -178,8 +301,10 @@ ${pages
       return;
     }
     set({
-      status: "searching",
-      progress: "realImport.progress.search",
+      status: "ready",
+      progress: get().activeSetId === id
+        ? "realImport.progress.search"
+        : get().progress,
       error: "",
     });
     try {
@@ -200,8 +325,15 @@ ${pages
       const query = queries.join(" | ");
       if (uniqueResults.length === 0) {
         set({
-          status: "ready",
-          progress: "realImport.progress.manualNoResult",
+          ...(get().activeSetId === id
+            ? {
+                status: "ready" as const,
+                progress: "realImport.progress.manualNoResult",
+                answers: mergeAnswerRows(draft, "{}", query, bankTable),
+              }
+            : {}),
+        });
+        updateSet(get, set, id, {
           answers: mergeAnswerRows(draft, "{}", query, bankTable),
         });
         return;
@@ -224,24 +356,163 @@ ${pages
           },
         ],
       });
-      set({
-        status: "ready",
-        progress: "realImport.progress.candidates",
-        answers: mergeAnswerRows(draft, reply, query, bankTable),
-      });
+      const nextAnswers = mergeAnswerRows(draft, reply, query, bankTable);
+      updateSet(get, set, id, { answers: nextAnswers });
+      if (get().activeSetId === id) {
+        set({
+          status: "ready",
+          progress: "realImport.progress.candidates",
+          draft,
+          answers: nextAnswers,
+        });
+      }
     } catch (error) {
-      set({
-        status: "ready",
-        progress: "realImport.progress.manualFailed",
-        error: error instanceof Error ? error.message : String(error),
-        answers: mergeAnswerRows(draft, "{}", "", bankTable),
+      const nextAnswers = mergeAnswerRows(draft, "{}", "", bankTable);
+      updateSet(get, set, id, { answers: nextAnswers });
+      if (get().activeSetId === id) {
+        set({
+          status: "ready",
+          progress: "realImport.progress.manualFailed",
+          error: importErrorMessage(error),
+          draft,
+          answers: nextAnswers,
+        });
+      }
+    }
+  },
+
+  selectSet: (id) => {
+    const item = get().session?.sets.find((candidate) => candidate.id === id);
+    if (!item) return;
+    set({
+      activeSetId: id,
+      draft: item.draft ?? null,
+      answers: item.answers ?? null,
+      error: item.error,
+      progress:
+        item.status === "ready"
+          ? "realImport.progress.draftReady"
+          : item.status === "error"
+            ? "realImport.progress.manualFailed"
+            : "realImport.progress.structureSets",
+    });
+  },
+
+  toggleSet: (id, enabled) => {
+    updateSet(get, set, id, { enabled });
+  },
+
+  updateSetRange: (id, pageStart, pageEnd) => {
+    const session = get().session;
+    if (!session) return;
+    const start = Math.min(
+      session.pages.length,
+      Math.max(1, Math.min(pageStart, pageEnd)),
+    );
+    const end = Math.min(
+      session.pages.length,
+      Math.max(start, pageStart, pageEnd),
+    );
+    updateSet(get, set, id, {
+      pageStart: start,
+      pageEnd: end,
+      status: "pending",
+      draft: undefined,
+      answers: undefined,
+      error: "",
+    });
+    if (get().activeSetId === id) {
+      set({ draft: null, answers: null, status: "ready", error: "" });
+    }
+  },
+
+  retrySet: async (id) => {
+    const session = get().session;
+    const item = session?.sets.find((candidate) => candidate.id === id);
+    if (!session || !item) return;
+    const configState = useConfigStore.getState();
+    const provider = configState.activeConfig();
+    if (!provider) return;
+    const apiKey = await storage.getApiKey(provider.id);
+    if (!apiKey) return;
+    updateSet(get, set, id, { status: "extracting", error: "" });
+    if (get().activeSetId === id) {
+      set({ status: "extracting", error: "" });
+    }
+    try {
+      const pageText = setPageText(session.pages, item);
+      const reply = await storage.completeChat({
+        baseUrl: provider.baseUrl,
+        apiKey,
+        model: provider.model,
+        temperature: Math.min(provider.temperature ?? 0.1, 0.2),
+        maxTokens: Math.max(provider.maxTokens ?? 0, 24_000),
+        messages: [
+          {
+            role: "system",
+            content:
+              "Convert OCR text into the requested import JSON. Return JSON only.",
+          },
+          {
+            role: "user",
+            content: `${importedTextInstruction({
+              mode: session.mode,
+              selectedStages: session.selectedStages,
+              setLabel: item.setLabel,
+              examDate: item.examDate,
+            })}
+
+OCR/text-layer pages:
+${pageText.slice(0, 70_000)}`,
+          },
+        ],
       });
+      const pageDraft = parseImportedPageDraft(reply);
+      const draft = ImportedPaperDraftSchema.parse({
+        ...mergeImportedPages([pageDraft], {
+          mode: session.mode,
+          selectedStages: session.selectedStages,
+          sourceFileName: session.sourceFileName,
+          sourceHash: session.sourceHash,
+          listeningAudioPath: session.listeningAudioPath,
+        }),
+        examDate: item.examDate || pageDraft.examDate,
+        setLabel: item.setLabel || pageDraft.setLabel,
+      });
+      const answerTable = answerTableForDraft(draft);
+      updateSet(get, set, id, {
+        status: "ready",
+        draft,
+        answers: answerTable,
+        error: "",
+      });
+      if (get().activeSetId === id) {
+        set({
+          status: "ready",
+          draft,
+          answers: answerTable,
+          progress: "realImport.progress.draftReady",
+          error: "",
+        });
+      }
+      await get().searchSetAnswers(id);
+    } catch (error) {
+      const message = importErrorMessage(error);
+      updateSet(get, set, id, { status: "error", error: message });
+      if (get().activeSetId === id) {
+        set({
+          status: "error",
+          error: message,
+          progress: "realImport.progress.manualFailed",
+        });
+      }
     }
   },
 
   updateAnswer: (stage, groupId, sourceQuestionNumber, answerLetter) => {
+    const id = get().activeSetId;
     const current = get().answers;
-    if (!current) return;
+    if (!id || !current) return;
     const rows = current.rows.map((row) =>
       row.stage === stage &&
       row.groupId === groupId &&
@@ -253,56 +524,66 @@ ${pages
           }
         : row,
     );
-    set({ answers: { ...current, rows } });
+    const answers = { ...current, rows };
+    updateSet(get, set, id, { answers });
+    set({ answers });
   },
 
-  replaceDraft: (draft) =>
+  replaceDraft: (draft) => {
+    const id = get().activeSetId;
+    if (!id) return;
+    const answers = answerTableForDraft(draft);
+    updateSet(get, set, id, { draft, answers, status: "ready", error: "" });
     set({
       draft,
-      answers: answerTableForDraft(draft),
+      answers,
       status: "ready",
       progress: "realImport.progress.draftReady",
       error: "",
-    }),
+    });
+  },
 
   apply: async () => {
-    const draft = get().draft;
-    const answers = get().answers;
-    if (!draft) return false;
-    const confirmedAnswers = answers;
-    if (!confirmedAnswers) {
-      set({
-        status: "ready",
-        error: "realImport.errors.answerTableRequired",
-      });
+    const session = get().session;
+    const selectedSets =
+      session?.sets.filter((item) => item.enabled) ?? [];
+    if (!session || selectedSets.length === 0) {
+      set({ status: "ready", error: "realImport.errors.noEnabledSets" });
       return false;
     }
-    const objectiveRows =
-      confirmedAnswers.rows.filter(
+    const prepared: Array<{
+      set: ImportedSetDraft;
+      draft: ImportedPaperDraft;
+      answers: AnswerSearchResult;
+      paper: ReturnType<typeof importedDraftToPaper>;
+    }> = [];
+    for (const item of selectedSets) {
+      if (!item.draft || !item.answers) {
+        get().selectSet(item.id);
+        set({ error: "realImport.errors.answerTableRequired" });
+        return false;
+      }
+      const objectiveRows = item.answers.rows.filter(
         (row) => !["writing", "translation"].includes(row.stage),
       );
-    if (
-      objectiveRows.length === 0 ||
-      objectiveRows.some(
-        (row) =>
-          !row.answerLetter ||
-          row.status === "conflict" ||
-          row.status === "missing",
-      )
-    ) {
-      set({
-        status: "ready",
-        error: "realImport.errors.answerConfirmRequired",
-      });
-      return false;
-    }
-    set({ status: "applying", error: "" });
-    try {
-      const confirmedDraft = applyAnswerRows(draft, confirmedAnswers.rows);
+      if (
+        objectiveRows.length === 0 ||
+        objectiveRows.some(
+          (row) =>
+            !row.answerLetter ||
+            row.status === "conflict" ||
+            row.status === "missing",
+        )
+      ) {
+        get().selectSet(item.id);
+        set({ error: "realImport.errors.answerConfirmRequired" });
+        return false;
+      }
+      const confirmedDraft = applyAnswerRows(item.draft, item.answers.rows);
       const draftIssues = importedDraftIssues(confirmedDraft);
       if (draftIssues.length > 0) {
+        get().selectSet(item.id);
         set({
-          status: "ready",
           error: `realImport.errors.draftInvalid\n${draftIssues.join("\n")}`,
         });
         return false;
@@ -312,24 +593,48 @@ ${pages
       });
       const issues = importedPaperIssues(paper);
       if (issues.length > 0) {
+        get().selectSet(item.id);
         set({
-          status: "ready",
           error: `realImport.errors.draftInvalid\n${issues.join("\n")}`,
         });
         return false;
       }
-      await usePaperStore.getState().newPaper();
-      await usePaperStore.getState().replacePaper(paper);
+      prepared.push({
+        set: item,
+        draft: confirmedDraft,
+        answers: item.answers,
+        paper,
+      });
+    }
+    set({ status: "applying", error: "" });
+    try {
       const { dataDir } = useConfigStore.getState();
       const bank = await loadLocalBank(dataDir);
+      const existing = usePaperStore.getState().papers;
+      let importedCount = 0;
       const nextBank = mergeAnswerBank(
         bank,
         AnswerBankSchema.parse({
           version: 1,
           updatedAt: new Date().toISOString(),
-          entries: entriesFromConfirmedDraft(confirmedDraft, confirmedAnswers.rows),
+          entries: prepared.flatMap((entry) =>
+            entriesFromConfirmedDraft(entry.draft, entry.answers.rows),
+          ),
         }),
       );
+      for (const entry of prepared) {
+        const duplicate = existing.some(
+          (paper) =>
+            !paper.archived &&
+            paper.sourceHash === session.sourceHash &&
+            paper.setLabel === entry.set.setLabel &&
+            paper.examDate === entry.set.examDate,
+        );
+        if (duplicate) continue;
+        await usePaperStore.getState().newPaper();
+        await usePaperStore.getState().replacePaper(entry.paper);
+        importedCount += 1;
+      }
       if (dataDir) {
         await storage
           .saveAnswerBank(dataDir, JSON.stringify(nextBank, null, 2))
@@ -338,12 +643,17 @@ ${pages
       set({
         status: "idle",
         progress: "",
+        progressCurrent: 0,
+        progressTotal: 0,
+        progressStartedAt: null,
+        session: null,
+        activeSetId: null,
         draft: null,
         answers: null,
         bankCount: nextBank.entries.length,
         error: "",
       });
-      return true;
+      return importedCount > 0 || prepared.length > 0;
     } catch (error) {
       set({
         status: "error",
@@ -389,6 +699,11 @@ ${pages
     set({
       status: "idle",
       progress: "",
+      progressCurrent: 0,
+      progressTotal: 0,
+      progressStartedAt: null,
+      session: null,
+      activeSetId: null,
       draft: null,
       answers: null,
       error: "",

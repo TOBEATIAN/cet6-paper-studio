@@ -44,6 +44,7 @@ interface PaperState {
   renamePaper: (id: string, title: string) => Promise<void>;
   duplicatePaper: (id: string) => Promise<void>;
   deletePaper: (id: string) => Promise<void>;
+  archivePapers: (ids: string[], archived: boolean) => Promise<void>;
   /** Replace the entire paper (e.g. JSON project import). Clears undo. */
   replacePaper: (paper: ExamPaper) => Promise<void>;
   setTitle: (title: string) => void;
@@ -130,6 +131,33 @@ export const usePaperStore = create<PaperState>((set, get) => {
         await storage.savePaper(dataDir, created.paperId, working);
         await storage.savePaperIndex(dataDir, created.index);
         index = created.index;
+      }
+
+      if (index.version < 2) {
+        const papers = await Promise.all(
+          index.papers.map(async (meta) => {
+            const stored = await storage.loadPaper(dataDir, meta.id);
+            if (!stored) return meta;
+            const derived = upsertPaperMeta(
+              {
+                version: 2,
+                activePaperId: meta.id,
+                papers: [meta],
+              },
+              meta.id,
+              stored,
+              meta.updatedAt,
+            ).papers[0];
+            return {
+              ...derived,
+              createdAt: meta.createdAt,
+              updatedAt: meta.updatedAt,
+              archived: meta.archived,
+            };
+          }),
+        );
+        index = { ...index, version: 2, papers };
+        await storage.savePaperIndex(dataDir, index);
       }
 
       const activeId = index.activePaperId ?? index.papers[0]?.id ?? null;
@@ -267,6 +295,23 @@ export const usePaperStore = create<PaperState>((set, get) => {
         saveStatus: "saved",
         undoSnapshot: null,
       });
+    },
+
+    archivePapers: async (ids, archived) => {
+      const { dataDir } = useConfigStore.getState();
+      if (!dataDir || ids.length === 0) return;
+      const current = await storage.loadPaperIndex(dataDir);
+      if (!current) return;
+      const selected = new Set(ids);
+      const index: PaperIndex = {
+        ...current,
+        version: 2,
+        papers: current.papers.map((paper) =>
+          selected.has(paper.id) ? { ...paper, archived } : paper,
+        ),
+      };
+      await storage.savePaperIndex(dataDir, index);
+      set({ papers: index.papers });
     },
 
     replacePaper: async (paper) => {

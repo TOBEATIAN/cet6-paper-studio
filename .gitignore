@@ -14,6 +14,7 @@ src-tauri/sidecars/dist/
 src-tauri/sidecars/.tmp-*/
 src-tauri/sidecars/**/__pycache__/
 src-tauri/resources/kitten-tts.exe
+src-tauri/resources/paddle-ocr.exe
 
 # Temporary local TTS benchmark cache (models and disposable Python venv)
 .tmp_tts_probe/

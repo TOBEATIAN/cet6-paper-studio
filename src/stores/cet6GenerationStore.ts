@@ -3,6 +3,7 @@ import {
   CET6_CHECKPOINT_VERSION,
   CET6_CONTENT_STAGES,
   CET6_PIPELINE_PHASES,
+  SpecialtyStageTopicsSchema,
   type Cet6Blueprint,
   type Cet6ContentStage,
   type Cet6GenerationCheckpoint,
@@ -37,6 +38,7 @@ import {
   buildReadingCRiskReviewPrompt,
   collectReadingCRisks,
   formatReadingCRisksForRepair,
+  groupReadingCRisksForReview,
   parseReadingCRiskReviewResponse,
   unresolvedReadingCRiskText,
 } from "../lib/cet/readingCRisk";
@@ -88,6 +90,15 @@ const DEFAULT_STAGE_DURATION_MS: Record<Cet6PipelinePhase, number> = {
   translation: 60_000,
 };
 
+function fullGenerationScope(): Cet6GenerationScope {
+  return {
+    mode: "full",
+    selectedStages: [],
+    stageTopics: SpecialtyStageTopicsSchema.parse({}),
+    focusTopic: "",
+  };
+}
+
 interface Cet6GenerationState {
   status: "idle" | "running" | "completed" | "error";
   currentPhase: Cet6PipelinePhase | null;
@@ -116,7 +127,7 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
   qualityReport: null,
   generationStartedAt: null,
   estimatedTotalMs: 0,
-  scope: { mode: "full", selectedStages: [], focusTopic: "" },
+  scope: fullGenerationScope(),
 
   load: async (paperId) => {
     const dataDir = useConfigStore.getState().dataDir;
@@ -135,11 +146,7 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
         estimatedTotalMs: checkpoint
           ? estimateCheckpointDurationMs(checkpoint)
           : 0,
-        scope: checkpoint?.generationScope ?? {
-          mode: "full",
-          selectedStages: [],
-          focusTopic: "",
-        },
+        scope: checkpoint?.generationScope ?? fullGenerationScope(),
       });
     } catch {
       set({
@@ -152,7 +159,7 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
         qualityReport: null,
         generationStartedAt: null,
         estimatedTotalMs: 0,
-        scope: { mode: "full", selectedStages: [], focusTopic: "" },
+        scope: fullGenerationScope(),
       });
     }
   },
@@ -172,9 +179,10 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
         ? {
             mode: "specialty",
             selectedStages: [...new Set(requestedScope.selectedStages)],
+            stageTopics: requestedScope.stageTopics,
             focusTopic: requestedScope.focusTopic.trim(),
           }
-        : { mode: "full", selectedStages: [], focusTopic: "" };
+        : fullGenerationScope();
     if (scope.mode === "specialty" && scope.selectedStages.length === 0) {
       set({
         status: "error",
@@ -523,7 +531,7 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
       qualityReport: null,
       generationStartedAt: null,
       estimatedTotalMs: 0,
-      scope: { mode: "full", selectedStages: [], focusTopic: "" },
+      scope: fullGenerationScope(),
     });
   },
 
@@ -673,7 +681,7 @@ async function generateBlueprint(
       ...(scope.mode === "specialty"
         ? buildCet6SpecialtyBlueprintPrompt(
             scope.selectedStages,
-            scope.focusTopic,
+            scope.stageTopics,
           )
         : buildCet6BlueprintPrompt()),
       ...(correction
@@ -715,7 +723,7 @@ async function generateBlueprint(
         messages,
         startedAt,
         startedMs,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorText(error),
       });
       throw error;
     }
@@ -806,7 +814,7 @@ async function generateStage(
         messages,
         startedAt,
         startedMs,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorText(error),
       });
       throw error;
     }
@@ -889,7 +897,7 @@ async function generateReadingBStage(
         messages,
         startedAt,
         startedMs,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorText(error),
       });
       throw error;
     }
@@ -966,7 +974,7 @@ async function generateReadingBStage(
         messages,
         startedAt,
         startedMs,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorText(error),
       });
       throw error;
     }
@@ -1099,7 +1107,7 @@ async function generateReadingCStage(
           messages,
           startedAt,
           startedMs,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorText(error),
         });
         throw error;
       }
@@ -1182,7 +1190,7 @@ async function generateReadingCStage(
           messages,
           startedAt,
           startedMs,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorText(error),
         });
         throw error;
       }
@@ -1360,48 +1368,50 @@ async function resolveReadingCRisks(
     const risks = collectReadingCRisks(questions);
     if (risks.length === 0) return { ok: true, questions };
 
-    const reviewMessages = buildReadingCRiskReviewPrompt(risks);
-    messages.push(...reviewMessages);
-    let reviewReply: string;
-    try {
-      reviewReply = await storage.completeChat({
-        baseUrl: provider.baseUrl,
-        apiKey,
-        model: provider.model,
-        messages: reviewMessages,
-        temperature: 0.1,
-        maxTokens: 8_192,
-      });
-    } catch (error) {
-      await recordGenerationDiagnostic({
-        dataDir,
-        paperId,
-        stage: "reading-c",
-        attempt: generationAttempt,
-        attemptLimit: MAX_HEAVY_STAGE_ATTEMPTS,
-        status: "network_error",
-        provider: { baseUrl: provider.baseUrl, model: provider.model },
-        messages,
-        startedAt,
-        startedMs,
-        error: error instanceof Error ? error.message : String(error),
-        rawReply: replies.join("\n\n--- next reply ---\n\n"),
-      });
-      throw error;
+    const groups = groupReadingCRisksForReview(risks, 2);
+    const unresolvedRisks: ReturnType<typeof collectReadingCRisks> = [];
+    const invalidReviews: string[] = [];
+    let reviewFailed = false;
+    for (const group of groups) {
+      const reviewMessages = buildReadingCRiskReviewPrompt(group);
+      messages.push(...reviewMessages);
+      let reviewReply: string;
+      try {
+        reviewReply = await storage.completeChat({
+          baseUrl: provider.baseUrl,
+          apiKey,
+          model: provider.model,
+          messages: reviewMessages,
+          temperature: 0.1,
+          maxTokens: 32_768,
+        });
+      } catch (error) {
+        lastError = `Reading C risk review failed: ${errorText(error)}`;
+        reviewFailed = true;
+        break;
+      }
+      replies.push(reviewReply);
+      const parsed = parseReadingCRiskReviewResponse(reviewReply);
+      if (!parsed.ok) {
+        lastError = `Reading C risk review JSON failed:\n${parsed.error}`;
+        reviewFailed = true;
+        break;
+      }
+      const applied = applyReadingCRiskDecisions(
+        questions,
+        group,
+        parsed.reviews,
+      );
+      questions = applied.questions;
+      unresolvedRisks.push(...applied.unresolved);
+      invalidReviews.push(...applied.invalidReviews);
     }
-    replies.push(reviewReply);
-    const parsed = parseReadingCRiskReviewResponse(reviewReply);
-    if (!parsed.ok) {
-      lastError = `Reading C risk review JSON failed:\n${parsed.error}`;
-      continue;
-    }
-    const applied = applyReadingCRiskDecisions(
-      questions,
-      risks,
-      parsed.reviews,
-    );
-    questions = applied.questions;
-    if (applied.unresolved.length === 0) return { ok: true, questions };
+    if (reviewFailed) continue;
+    if (unresolvedRisks.length === 0) return { ok: true, questions };
+    const applied = {
+      unresolved: unresolvedRisks,
+      invalidReviews,
+    };
 
     let repair: Awaited<ReturnType<typeof repairReadingCRiskGroups>>;
     try {
@@ -1427,7 +1437,7 @@ async function resolveReadingCRisks(
         messages,
         startedAt,
         startedMs,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorText(error),
         rawReply: replies.join("\n\n--- next reply ---\n\n"),
       });
       throw error;
@@ -1724,6 +1734,24 @@ function stageMaxTokens(
 
 class GenerationValidationError extends Error {}
 
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const value = error as { code?: unknown; detail?: unknown };
+    const code = typeof value.code === "string" ? value.code : "";
+    const detail = typeof value.detail === "string" ? value.detail : "";
+    if (code || detail) {
+      return [code ? `错误码：${code}` : "", detail].filter(Boolean).join("；");
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
 function toGenerationError(error: unknown): {
   code: string;
   detail?: string;
@@ -1740,7 +1768,7 @@ function toGenerationError(error: unknown): {
   }
   return {
     code: "unknown",
-    detail: error instanceof Error ? error.message : String(error),
+    detail: errorText(error),
   };
 }
 

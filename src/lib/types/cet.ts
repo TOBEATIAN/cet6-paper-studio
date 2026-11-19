@@ -23,9 +23,30 @@ export const Cet6PipelinePhaseSchema = z.enum(CET6_PIPELINE_PHASES);
 export type Cet6ContentStage = z.infer<typeof Cet6ContentStageSchema>;
 export type Cet6PipelinePhase = z.infer<typeof Cet6PipelinePhaseSchema>;
 
+export const SpecialtyStageTopicsSchema = z.object({
+  writing: z.string().default(""),
+  "listening-a": z.string().default(""),
+  "listening-b": z.string().default(""),
+  "listening-c": z.string().default(""),
+  "reading-a": z.string().default(""),
+  "reading-b": z.string().default(""),
+  "reading-c": z
+    .object({
+      first: z.string().default(""),
+      second: z.string().default(""),
+    })
+    .prefault({}),
+  translation: z.string().default(""),
+});
+
+export type SpecialtyStageTopics = z.infer<
+  typeof SpecialtyStageTopicsSchema
+>;
+
 export const Cet6GenerationScopeSchema = z.object({
   mode: z.enum(["full", "specialty"]).default("full"),
   selectedStages: z.array(Cet6ContentStageSchema).default([]),
+  stageTopics: SpecialtyStageTopicsSchema.prefault({}),
   focusTopic: z.string().default(""),
 });
 

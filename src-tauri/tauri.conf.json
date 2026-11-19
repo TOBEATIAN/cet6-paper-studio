@@ -30,7 +30,9 @@
       "resources/LICENSE",
       "resources/NOTICE",
       "resources/kitten-tts.exe",
-      "resources/kitten-model/**/*"
+      "resources/kitten-model/**/*",
+      "resources/paddle-ocr.exe",
+      "resources/paddleocr/**/*"
     ],
     "icon": [
       "icons/32x32.png",
