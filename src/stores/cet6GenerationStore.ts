@@ -1506,9 +1506,15 @@ function readingCGroupIndexesForError(error: string): Array<0 | 1> {
     if (number >= 46 && number <= 50) indexes.add(0);
     if (number >= 51 && number <= 55) indexes.add(1);
   }
-  if (indexes.size > 0) return [...indexes];
-  if (/两篇|reading-c:two-passages/i.test(error)) return [0, 1];
-  return [];
+  if (
+    /两篇|四选项均值|干扰项不短|重合率|连续原文|双支撑|段落长度/i.test(
+      error,
+    )
+  ) {
+    indexes.add(0);
+    indexes.add(1);
+  }
+  return [...indexes];
 }
 
 function readingCErrorForGroup(
