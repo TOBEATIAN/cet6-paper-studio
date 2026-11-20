@@ -1,6 +1,8 @@
 const WORD_BANK_PREFIX = /^\s*[A-ZＡ-Ｚ]\s*[).、:：．]\s*/;
 const NUMBERED_BLANK =
   /[_＿]{2,}\s*[（(]?\s*(\d{1,2})\s*[）)]?\s*[_＿]{2,}/g;
+const BARE_NUMBERED_BLANK =
+  /(^|[\s])((?:2[6-9]|3[0-5]))(?=$|[\s.,;:!?，。；：])/g;
 
 /**
  * Remove labels accidentally embedded in a shared word-bank entry. The renderer
@@ -16,7 +18,12 @@ export function normalizeWordBank(words: readonly string[]): string[] {
  * underline syntax. The surrounding CSS gives each blank a writing-sized line.
  */
 export function formatBankedClozePassage(passage: string): string {
-  return passage.replace(NUMBERED_BLANK, (_match, number: string) => `++${number}++`);
+  return passage
+    .replace(NUMBERED_BLANK, (_match, number: string) => `++${number}++`)
+    .replace(
+      BARE_NUMBERED_BLANK,
+      (_match, prefix: string, number: string) => `${prefix}++${number}++`,
+    );
 }
 
 /** Split a long article into independently paginable paragraphs. */

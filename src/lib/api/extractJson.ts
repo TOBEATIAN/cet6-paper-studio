@@ -24,7 +24,9 @@ export interface ExtractedJson {
 export function extractJson(reply: string): ExtractedJson {
   const fenceMatch = findFencedJson(reply);
   if (fenceMatch) {
-    const json = fenceMatch.text.trim();
+    const fenced = fenceMatch.text.trim();
+    const balanced = findBalancedObject(fenced);
+    const json = balanced?.text ?? fenced;
     const prose = reply.slice(0, fenceMatch.start).trim();
     return { json: json.length > 0 ? json : null, prose };
   }

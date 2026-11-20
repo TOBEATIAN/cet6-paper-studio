@@ -109,6 +109,9 @@ export const Cet6GenerationCheckpointSchema = z.object({
   generationScope: Cet6GenerationScopeSchema.optional(),
   blueprint: Cet6BlueprintSchema.optional(),
   readingBPassage: z.string().min(1).optional(),
+  readingCPassages: z
+    .tuple([z.string().min(1), z.string().min(1)])
+    .optional(),
   questionsByStage: Cet6QuestionsByStageSchema.default({}),
   generationStartedAt: z.string().min(1).optional(),
   stageDurationsMs: z

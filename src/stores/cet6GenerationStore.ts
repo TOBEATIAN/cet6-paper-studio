@@ -76,6 +76,8 @@ import { defaultListeningAudioPath } from "../lib/tts/audio";
 
 const MAX_PARSE_ATTEMPTS = 3;
 const MAX_HEAVY_STAGE_ATTEMPTS = 5;
+const MAX_READING_C_PASSAGE_ATTEMPTS = 3;
+const MAX_READING_C_REPAIR_ROUNDS = 3;
 const MAX_READING_C_RISK_CYCLES = 2;
 const HEAVY_STAGE_MAX_TOKENS = 65_536;
 const DEFAULT_STAGE_DURATION_MS: Record<Cet6PipelinePhase, number> = {
@@ -342,6 +344,17 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
                   apiKey,
                   dataDir,
                   paperId,
+                  checkpoint.readingCPassages,
+                  async (validatedPassages) => {
+                    checkpoint = await saveCheckpoint(dataDir, {
+                      ...checkpoint,
+                      readingCPassages: validatedPassages,
+                    });
+                    set({
+                      estimatedTotalMs:
+                        estimateCheckpointDurationMs(checkpoint),
+                    });
+                  },
                 )
               : stage === "writing"
                 ? await generateStage(stage, blueprint, provider, apiKey, dataDir, paperId, {
@@ -1059,6 +1072,10 @@ async function generateReadingCStage(
   apiKey: string,
   dataDir: string,
   paperId: string,
+  savedPassages?: readonly [string, string],
+  onPassagesReady?: (
+    passages: [string, string],
+  ) => Promise<void>,
 ): Promise<Question[]> {
   const history = await loadRecentReadingCHistory(dataDir, paperId);
   const plan = createReadingCPlan(
@@ -1066,13 +1083,19 @@ async function generateReadingCStage(
     `${paperId}\n${blueprint.title}\nreading-c`,
     history,
   );
-  const passages = await Promise.all(
-    plan.passages.map(async (passagePlan) => {
+  const passages =
+    savedPassages ??
+    (await Promise.all(
+      plan.passages.map(async (passagePlan) => {
     let correction: string | undefined;
     let passageRepairSource: string | undefined;
     let passage: string | null = null;
     let lastError = "Unknown Reading C passage validation error.";
-    for (let attempt = 0; attempt < MAX_HEAVY_STAGE_ATTEMPTS; attempt += 1) {
+    for (
+      let attempt = 0;
+      attempt < MAX_READING_C_PASSAGE_ATTEMPTS;
+      attempt += 1
+    ) {
       const baseMessages = buildCet6ReadingCPassagePrompt(
         passagePlan,
         correction,
@@ -1101,7 +1124,7 @@ async function generateReadingCStage(
           paperId,
           stage: "reading-c",
           attempt,
-          attemptLimit: MAX_HEAVY_STAGE_ATTEMPTS,
+          attemptLimit: MAX_READING_C_PASSAGE_ATTEMPTS,
           status: "network_error",
           provider: { baseUrl: provider.baseUrl, model: provider.model },
           messages,
@@ -1127,7 +1150,7 @@ async function generateReadingCStage(
         paperId,
         stage: "reading-c",
         attempt,
-        attemptLimit: MAX_HEAVY_STAGE_ATTEMPTS,
+        attemptLimit: MAX_READING_C_PASSAGE_ATTEMPTS,
         status: "validation_failed",
         provider: { baseUrl: provider.baseUrl, model: provider.model },
         messages,
@@ -1139,25 +1162,36 @@ async function generateReadingCStage(
     }
     if (!passage) throw new GenerationValidationError(lastError);
     return passage;
-  }),
-  );
+      }),
+    ));
+  if (!savedPassages && onPassagesReady) {
+    await onPassagesReady([passages[0], passages[1]]);
+  }
 
   let questionCorrection: string | undefined;
   let questionRepairSource: string | undefined;
+  let candidateQuestions: Question[] | null = null;
   let lastError = "Unknown Reading C question validation error.";
-  for (let attempt = 0; attempt < MAX_HEAVY_STAGE_ATTEMPTS; attempt += 1) {
-    const questions: Question[] = [];
+  for (
+    let attempt = 0;
+    attempt < MAX_READING_C_REPAIR_ROUNDS;
+    attempt += 1
+  ) {
+    const questions: Question[] = candidateQuestions
+      ? candidateQuestions.map((question) => ({ ...question }))
+      : [];
     const attemptMessages: { role: string; content: string }[] = [];
     const attemptReplies: string[] = [];
     const attemptStartedAt = new Date().toISOString();
     const attemptStartedMs = Date.now();
+    if (!candidateQuestions) {
     const generatedGroups = await Promise.all(
       plan.passages.map(async (passagePlan, index) => {
       const baseMessages = buildCet6ReadingCQuestionsPrompt(
         blueprint,
         passagePlan,
         passages[index],
-        questionCorrection,
+        readingCErrorForGroup(questionCorrection, passagePlan.index),
       );
       const messages = questionRepairSource
         ? [
@@ -1183,7 +1217,7 @@ async function generateReadingCStage(
           paperId,
           stage: "reading-c",
           attempt,
-          attemptLimit: MAX_HEAVY_STAGE_ATTEMPTS,
+          attemptLimit: MAX_READING_C_REPAIR_ROUNDS,
           status: "network_error",
           provider: { baseUrl: provider.baseUrl, model: provider.model },
           messages,
@@ -1224,7 +1258,7 @@ async function generateReadingCStage(
           paperId,
           stage: "reading-c",
           attempt,
-          attemptLimit: MAX_HEAVY_STAGE_ATTEMPTS,
+          attemptLimit: MAX_READING_C_REPAIR_ROUNDS,
           status: "validation_failed",
           provider: { baseUrl: provider.baseUrl, model: provider.model },
           messages: generated.messages,
@@ -1238,20 +1272,20 @@ async function generateReadingCStage(
       questions.push(...generated.parsed.value);
     }
     if (generatedGroups.some((generated) => !generated.parsed.ok)) continue;
+    }
 
     const structural = validateCet6StageQuestions("reading-c", questions);
     if (structural.length > 0) {
       lastError = structural.join("\n");
       questionCorrection = lastError;
-      questionRepairSource = attemptReplies.join(
-        "\n\n--- next passage reply ---\n\n",
-      );
+      questionRepairSource = undefined;
+      candidateQuestions = questions.map((question) => ({ ...question }));
       await recordGenerationDiagnostic({
         dataDir,
         paperId,
         stage: "reading-c",
         attempt,
-        attemptLimit: MAX_HEAVY_STAGE_ATTEMPTS,
+        attemptLimit: MAX_READING_C_REPAIR_ROUNDS,
         status: "validation_failed",
         provider: { baseUrl: provider.baseUrl, model: provider.model },
         messages: attemptMessages,
@@ -1275,15 +1309,14 @@ async function generateReadingCStage(
     if (!riskResolution.ok) {
       lastError = riskResolution.error;
       questionCorrection = lastError;
-      questionRepairSource = attemptReplies.join(
-        "\n\n--- next passage reply ---\n\n",
-      );
+      questionRepairSource = undefined;
+      candidateQuestions = questions.map((question) => ({ ...question }));
       await recordGenerationDiagnostic({
         dataDir,
         paperId,
         stage: "reading-c",
         attempt,
-        attemptLimit: MAX_HEAVY_STAGE_ATTEMPTS,
+        attemptLimit: MAX_READING_C_REPAIR_ROUNDS,
         status: "risk_review_failed",
         provider: { baseUrl: provider.baseUrl, model: provider.model },
         messages: riskResolution.messages,
@@ -1302,9 +1335,8 @@ async function generateReadingCStage(
     if (postRiskStructural.length > 0) {
       lastError = postRiskStructural.join("\n");
       questionCorrection = lastError;
-      questionRepairSource = attemptReplies.join(
-        "\n\n--- next passage reply ---\n\n",
-      );
+      questionRepairSource = undefined;
+      candidateQuestions = questions.map((question) => ({ ...question }));
       continue;
     }
     const quality = auditCet6Stage("reading-c", questions);
@@ -1314,7 +1346,6 @@ async function generateReadingCStage(
       .join("\n");
     const qualityRepair = await repairReadingCQualityGroups(
       questions,
-      blueprint,
       plan,
       passages,
       lastError,
@@ -1361,15 +1392,14 @@ async function generateReadingCStage(
       lastError = qualityRepair.error;
     }
     questionCorrection = lastError;
-    questionRepairSource = attemptReplies.join(
-      "\n\n--- next passage reply ---\n\n",
-    );
+    questionRepairSource = undefined;
+    candidateQuestions = questions.map((question) => ({ ...question }));
     await recordGenerationDiagnostic({
       dataDir,
       paperId,
       stage: "reading-c",
       attempt,
-      attemptLimit: MAX_HEAVY_STAGE_ATTEMPTS,
+      attemptLimit: MAX_READING_C_REPAIR_ROUNDS,
       status: "validation_failed",
       provider: { baseUrl: provider.baseUrl, model: provider.model },
       messages: attemptMessages,
@@ -1384,7 +1414,6 @@ async function generateReadingCStage(
 
 async function repairReadingCQualityGroups(
   initialQuestions: readonly Question[],
-  blueprint: Cet6Blueprint,
   plan: ReadingCPlan,
   passages: readonly string[],
   qualityError: string,
@@ -1405,11 +1434,17 @@ async function repairReadingCQualityGroups(
   const repairs = await Promise.all(
     groupIndexes.map(async (index) => {
       const passagePlan = plan.passages[index];
-      const repairMessages = buildCet6ReadingCQuestionsPrompt(
-        blueprint,
+      const first = index === 0 ? 46 : 51;
+      const relevantError = readingCErrorForGroup(qualityError, index);
+      const currentQuestions = initialQuestions.filter((question) => {
+        const number = question.examSection?.questionNumber ?? 0;
+        return number >= first && number <= first + 4;
+      });
+      const repairMessages = buildCet6ReadingCGroupRepairPrompt(
         passagePlan,
         passages[index],
-        qualityError,
+        currentQuestions,
+        relevantError ?? qualityError,
       );
       messages.push(...repairMessages);
       const reply = await storage.completeChat({
@@ -1464,8 +1499,8 @@ async function repairReadingCQualityGroups(
   return { ok: true, questions };
 }
 
-function readingCGroupIndexesForError(error: string): number[] {
-  const indexes = new Set<number>();
+function readingCGroupIndexesForError(error: string): Array<0 | 1> {
+  const indexes = new Set<0 | 1>();
   for (const match of error.matchAll(/\bQ(\d{1,2})\b/g)) {
     const number = Number(match[1]);
     if (number >= 46 && number <= 50) indexes.add(0);
@@ -1474,6 +1509,27 @@ function readingCGroupIndexesForError(error: string): number[] {
   if (indexes.size > 0) return [...indexes];
   if (/两篇|reading-c:two-passages/i.test(error)) return [0, 1];
   return [];
+}
+
+function readingCErrorForGroup(
+  error: string | undefined,
+  index: 0 | 1,
+): string | undefined {
+  if (!error) return undefined;
+  const first = index === 0 ? 46 : 51;
+  const last = first + 4;
+  const relevant = error
+    .split("\n")
+    .filter((line) => {
+      const numbers = [...line.matchAll(/\bQ(\d{1,2})\b/g)].map((match) =>
+        Number(match[1]),
+      );
+      if (numbers.length === 0) return true;
+      return numbers.some((number) => number >= first && number <= last);
+    })
+    .join("\n")
+    .trim();
+  return relevant || undefined;
 }
 
 interface ReadingCRiskResolutionSuccess {
@@ -1597,7 +1653,7 @@ async function resolveReadingCRisks(
         paperId,
         stage: "reading-c",
         attempt: generationAttempt,
-        attemptLimit: MAX_HEAVY_STAGE_ATTEMPTS,
+        attemptLimit: MAX_READING_C_REPAIR_ROUNDS,
         status: "network_error",
         provider: { baseUrl: provider.baseUrl, model: provider.model },
         messages,

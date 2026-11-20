@@ -713,7 +713,7 @@ function makeReadingAPaper(): ExamPaper {
         ...(index === 0
           ? {
               passage:
-                "The first ____26____ is clear.\n\nThe second ____27____ follows.",
+                "The first 26 is clear.\n\nThe second 27 follows.",
               optionBank: [
                 "limitation",
                 "prohibited",

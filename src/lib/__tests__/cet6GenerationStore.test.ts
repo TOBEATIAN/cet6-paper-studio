@@ -388,7 +388,7 @@ describe("cet6GenerationStore", () => {
           (args as { maxTokens?: number } | undefined)?.maxTokens === 65_536,
       ),
     ).toBe(true);
-    expect(savedCheckpoints).toHaveLength(10);
+    expect(savedCheckpoints).toHaveLength(11);
     expect(
       savedCheckpoints.some(
         (checkpoint) =>
@@ -396,6 +396,16 @@ describe("cet6GenerationStore", () => {
           checkpoint !== null &&
           typeof (checkpoint as { readingBPassage?: unknown })
             .readingBPassage === "string",
+      ),
+    ).toBe(true);
+    expect(
+      savedCheckpoints.some(
+        (checkpoint) =>
+          typeof checkpoint === "object" &&
+          checkpoint !== null &&
+          Array.isArray((checkpoint as { readingCPassages?: unknown }).readingCPassages) &&
+          (checkpoint as { readingCPassages: unknown[] }).readingCPassages.length ===
+            2,
       ),
     ).toBe(true);
 

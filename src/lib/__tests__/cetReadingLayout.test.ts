@@ -162,6 +162,13 @@ describe("CET-6 reading layout helpers", () => {
     expect(formatBankedClozePassage("An ____26____ and (27) __27__.")).toBe(
       "An ++26++ and (27) ++27++.",
     );
+    expect(
+      formatBankedClozePassage(
+        "It can 26 be frozen, lives in 30 comfortable places, and reaches 35.",
+      ),
+    ).toBe(
+      "It can ++26++ be frozen, lives in ++30++ comfortable places, and reaches ++35++.",
+    );
   });
 
   it("splits long passages only at real line boundaries", () => {

@@ -409,22 +409,22 @@ Question plan:
 - Fixed question kinds: ${kindMap}
 - Fixed correct answer positions: ${answerMap}
 - Fixed evidence paragraph positions: ${paragraphMap}
-- Real CET-6 2022+ option calibration: this set should remain inside the
-  measured 8.1-9.8-word option-average range, with 4-7 long-option questions
-  and 0-2 all-short-option questions across the ten questions.
+- Real CET-6 2022+ option calibration for this five-question group: keep the
+  four-option average within 8.1-9.8 words, use four to seven long-option
+  questions, and avoid more than two all-short-option questions.
 - Use exactly four text options for every question and set correctAnswer to the fixed index.
 - All four options must contain at least three words; longest-minus-shortest per question must be at most six words.
 - In every question, at least one distractor must be no shorter than the correct option.
 - The four-option average across this set of five questions must be at most ten words.
-- Across the ten Reading C questions, at least four questions must have a four-option
-  average of 9-10 words, matching the real-paper long-option mix.
+- At least two questions in this group should have a four-option average of 9-10
+  words, matching the real-paper long-option mix.
 - The correct option may be the unique longest option in no more than two of these five questions.
 - Question stems should average at least twelve words and should point to a concrete person, object, study, policy or effect.
 - Each question must be answered primarily from its fixed paragraph; adjacent
   paragraphs may support it only when the item genuinely integrates them. Paragraph
   positions must therefore remain in reading order.
 - The correct option must be a cross-sentence paraphrase. Its longest identical word
-  sequence must be at most three words; no more than two of the ten questions may use
+  sequence must be at most three words; no more than one question in this group may use
   a three-word sequence.
 - At least two distractors in each question must be grounded in a locatable
   detail, but each must change exactly one decisive dimension: actor, object,
@@ -436,7 +436,8 @@ Question plan:
   must either stay below 50% support or trail the correct option by at least 15
   percentage points. Every strong distractor needs one explicit wrong wording or
   relation that can be quoted from the passage.
-- Correct options across the ten Reading C questions should average no more than 40% content-word overlap with their strongest supporting sentence.
+- Correct options in this group should average no more than 40% content-word overlap
+  with their strongest supporting sentence.
 - Build the correct option with synonyms and facts combined across at least two clauses or sentences.
 - Include plausible distractors using these types: 张冠李戴, 程度偏移, 无中生有, 答非所问, 因果倒置, 与原文相悖, 半对半错, 偷换范围.
 - Every explanation must be Chinese, include one short supporting English phrase in curly quotes, explicitly discuss each of A), B), C), D) and its error type, and end with “故选 X。” matching the fixed answer.
@@ -468,17 +469,23 @@ ${passage}
 Current question group:
 ${JSON.stringify(questions, null, 2)}
 
-Unresolved strong-distractor review:
+Unresolved validation issues:
 ${riskCorrection}
 
 Rules:
 - Return exactly five questions in the same JSON schema.
 - Preserve every question id, question number, correctAnswer, para and question kind.
 - Preserve a question when it is not listed above.
-- Rewrite only the listed distractor option and the explanation needed to make
-  its decisive factual error explicit.
+- Rewrite only the listed parts. This may include the correct option wording,
+  one or more distractors, or the explanation needed to make the decisive
+  evidence and error type explicit.
 - Do not weaken the correct option merely to manufacture a score gap.
 - Never create two options supported by the same proposition from one sentence.
+- Ensure the correct option shares at least two meaningful content words with
+  its supporting passage evidence while keeping every identical word run to
+  three words or fewer.
+- Reduce correct-option/evidence overlap and strong-distractor support when the
+  listed metrics exceed their thresholds.
 - The final explanation must remain Chinese, discuss A)-D), cite a short English
   phrase in curly quotes, name the allowed error type, and end with “故选 X。”.
 

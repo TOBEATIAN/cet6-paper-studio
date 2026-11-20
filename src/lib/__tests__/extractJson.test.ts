@@ -88,4 +88,13 @@ describe("extractJson", () => {
 
     expect(JSON.parse(extractJson(reply).json ?? "")).toEqual(payload);
   });
+
+  it("takes the first complete object when one fence contains two objects", () => {
+    const first = { questions: [{ id: "q1" }] };
+    const reply = `\`\`\`json\n${JSON.stringify(first)}\n${JSON.stringify({
+      questions: [{ id: "q2" }],
+    })}\n\`\`\``;
+    const extracted = extractJson(reply);
+    expect(JSON.parse(extracted.json ?? "")).toEqual(first);
+  });
 });
