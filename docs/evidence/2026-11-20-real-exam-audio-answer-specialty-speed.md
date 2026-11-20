@@ -43,6 +43,17 @@
 - Reading C 固定答案位置回归：A/B/C/D 内容会移动到计划字母并同步解析。
 - 前端 63 文件 / 419 项测试、TypeScript、Rust 41 项常规测试、生产构建和独立 debug 编译通过。
 
+## 追加修复：Reading A 共享词库
+
+- 创建试卷时出现 `Reading Section A Q26-Q35: incomplete options`，答案本身已齐。
+- 根因是 Reading A 只有一个共享 A-O 词库，旧导入建卷只把词库留在 Q26（或块字段），
+  题目校验却逐题要求 15 个选项。
+- `ImportedBlock` 新增 `optionBank`；同时兼容 `wordBank`、块级 `options` 和旧格式
+  “Q26.options 保存共享词库”三种来源。
+- 建卷前把共享词库复制到 Q26-Q35 全部题目，同时保留 `examSection.optionBank` 供试卷
+  集中展示。
+- 新增两种旧位置 + `wordBank` 别名的回归；前端现为 63 文件 / 421 项测试。
+
 ## 诊断入口
 
 `E:\Download\CET-6\generation\cet6\diagnostics\a4b6842c-bb2a-4639-b123-d7f45ac46ba4`

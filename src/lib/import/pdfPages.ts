@@ -62,7 +62,7 @@ Mode: ${input.mode}
 Selected stages: ${input.selectedStages.join(", ") || "all"}
 
 Return exactly one JSON object and no prose:
-{"title":"","examDate":"","setLabel":"","blocks":[{"groupId":"stable-slug","stage":"writing|listening-a|listening-b|listening-c|reading-a|reading-b|reading-c|translation","heading":"","examDate":"","setLabel":"","passage":"","questions":[{"sourceQuestionNumber":1,"content":"","options":[""],"answerLetter":"A","explanation":""}]}],"warnings":[]}
+{"title":"","examDate":"","setLabel":"","blocks":[{"groupId":"stable-slug","stage":"writing|listening-a|listening-b|listening-c|reading-a|reading-b|reading-c|translation","heading":"","examDate":"","setLabel":"","passage":"","optionBank":[],"questions":[{"sourceQuestionNumber":1,"content":"","options":[""],"answerLetter":"A","explanation":""}]}],"warnings":[]}
 
 Rules:
 - Preserve the printed question number in sourceQuestionNumber.
@@ -73,7 +73,7 @@ Rules:
 - Use the same groupId when a passage continues onto another page.
 - For passage continuation pages, repeat the groupId and return only new text/questions.
 - Ignore QR codes, advertisements, URLs, watermarks and page footers.
-- Reading A stores the A-O bank as the first question's options.
+- Reading A stores the complete A-O bank in the block's optionBank. Legacy output may put the same bank in the first question's options.
 - Reading B stores all printed paragraph letters as options; real papers may range A-M or A-O.
 - Writing returns one question without sourceQuestionNumber.
 - Translation returns one question without sourceQuestionNumber.
@@ -96,7 +96,7 @@ Exam date: ${input.examDate || "detect from text"}
 Selected stages: ${input.selectedStages.join(", ") || "all"}
 
 Return exactly one JSON object and no prose:
-{"title":"","examDate":"","setLabel":"","blocks":[{"groupId":"stable-slug","stage":"writing|listening-a|listening-b|listening-c|reading-a|reading-b|reading-c|translation","heading":"","examDate":"","setLabel":"","passage":"","questions":[{"sourceQuestionNumber":1,"content":"","options":[""],"answerLetter":"A","explanation":""}]}],"warnings":[]}
+{"title":"","examDate":"","setLabel":"","blocks":[{"groupId":"stable-slug","stage":"writing|listening-a|listening-b|listening-c|reading-a|reading-b|reading-c|translation","heading":"","examDate":"","setLabel":"","passage":"","optionBank":[],"questions":[{"sourceQuestionNumber":1,"content":"","options":[""],"answerLetter":"A","explanation":""}]}],"warnings":[]}
 
 Rules:
 - Preserve printed question numbers in sourceQuestionNumber.
@@ -104,7 +104,7 @@ Rules:
 - Include answerLetter only when visibly printed.
 - Reconstruct shared passages/transcripts and preserve paragraph breaks.
 - Ignore QR codes, ads, watermarks, page headers and footers.
-- Reading A: 10 blanks and a shared A-O bank.
+- Reading A: 10 blanks and a shared A-O bank in block.optionBank.
 - Reading B: statements 36-45 with paragraph letters A-M or A-O, matching the source.
 - Reading C: two passage groups and questions 46-55.
 - Writing and translation each return one task without sourceQuestionNumber.

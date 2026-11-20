@@ -4,8 +4,10 @@ import {
   answerTableForDraft,
   importedDraftIssues,
   importedDraftToPaper,
+  importedPaperIssues,
   mergeAnswerRows,
   mergeImportedPages,
+  parseImportedPageDraft,
 } from "../import/realExamImport";
 import { ImportedPaperDraftSchema } from "../types/import";
 
@@ -31,6 +33,7 @@ describe("real-exam import helpers", () => {
               examDate: "2025-06",
               setLabel: "第二套",
               passage: "First paragraph.",
+              optionBank: [],
               questions: [
                 {
                   sourceQuestionNumber: 46,
@@ -56,6 +59,7 @@ describe("real-exam import helpers", () => {
               examDate: "",
               setLabel: "",
               passage: "Second paragraph.",
+              optionBank: [],
               questions: [
                 {
                   sourceQuestionNumber: 46,
@@ -266,5 +270,87 @@ describe("real-exam import helpers", () => {
       ],
     });
     expect(importedDraftIssues(draft)).toEqual([]);
+  });
+
+  it("shares a legacy first-question Reading A word bank across all blanks", () => {
+    const bank = Array.from({ length: 15 }, (_, index) => `Bank ${index + 1}`);
+    const draft = ImportedPaperDraftSchema.parse({
+      mode: "section",
+      selectedStages: ["reading-a"],
+      blocks: [
+        {
+          groupId: "reading-a",
+          stage: "reading-a",
+          passage: "A passage with ten blanks.",
+          questions: Array.from({ length: 10 }, (_, index) => ({
+            sourceQuestionNumber: 26 + index,
+            content: `Blank ${26 + index}`,
+            options: index === 0 ? bank : [],
+            answerLetter: "A",
+          })),
+        },
+      ],
+    });
+    const paper = importedDraftToPaper(draft, { answersConfirmed: true });
+    const choices = paper.questions.filter(
+      (question) => question.type === "single-choice",
+    );
+    expect(
+      choices.every((question) => question.options.length === 15),
+    ).toBe(true);
+    expect(importedPaperIssues(paper)).toEqual([]);
+  });
+
+  it("uses block-level optionBank for imported Reading A", () => {
+    const bank = Array.from({ length: 15 }, (_, index) => `Word ${index + 1}`);
+    const draft = ImportedPaperDraftSchema.parse({
+      mode: "section",
+      selectedStages: ["reading-a"],
+      blocks: [
+        {
+          groupId: "reading-a",
+          stage: "reading-a",
+          passage: "A passage with ten blanks.",
+          optionBank: bank,
+          questions: Array.from({ length: 10 }, (_, index) => ({
+            sourceQuestionNumber: 26 + index,
+            content: `Blank ${26 + index}`,
+            options: [],
+            answerLetter: "A",
+          })),
+        },
+      ],
+    });
+    const paper = importedDraftToPaper(draft, { answersConfirmed: true });
+    const choices = paper.questions.filter(
+      (question) => question.type === "single-choice",
+    );
+    expect(
+      choices.every(
+        (question) =>
+          question.options.length === 15 &&
+          question.examSection?.optionBank?.length === 15,
+      ),
+    ).toBe(true);
+    expect(importedPaperIssues(paper)).toEqual([]);
+  });
+
+  it("accepts wordBank as a compatibility alias from model output", () => {
+    const page = parseImportedPageDraft(
+      JSON.stringify({
+        blocks: [
+          {
+            groupId: "reading-a",
+            stage: "reading-a",
+            wordBank: Array.from(
+              { length: 15 },
+              (_, index) => `Word ${index + 1}`,
+            ),
+            questions: [],
+          },
+        ],
+      }),
+    );
+    expect(page.blocks[0].optionBank).toHaveLength(15);
   });
 });

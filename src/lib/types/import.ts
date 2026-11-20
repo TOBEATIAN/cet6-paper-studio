@@ -56,6 +56,7 @@ export const ImportedBlockSchema = z.object({
   stage: Cet6ContentStageSchema,
   heading: z.string().default(""),
   passage: z.string().default(""),
+  optionBank: z.array(z.string()).default([]),
   examDate: z.string().default(""),
   setLabel: z.string().default(""),
   questions: z.array(ImportedQuestionSchema).default([]),

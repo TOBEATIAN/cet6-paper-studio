@@ -68,6 +68,13 @@ export function parseImportedPageDraft(raw: string): ImportedPageDraft {
               };
             })
           : [],
+        optionBank: Array.isArray(block.optionBank)
+          ? block.optionBank.map(String)
+          : Array.isArray(block.wordBank)
+            ? block.wordBank.map(String)
+            : Array.isArray(block.options)
+              ? block.options.map(String)
+            : [],
       };
     });
   }
@@ -126,10 +133,16 @@ export function mergeImportedPages(
           mergedQuestions.push(question);
         }
       }
+      const existingOptionBank = existing.optionBank ?? [];
+      const nextOptionBank = block.optionBank ?? [];
       blocks.set(key, {
         ...existing,
         heading: existing.heading || block.heading,
         passage: joinPassage(existing.passage, block.passage),
+        optionBank:
+          existingOptionBank.length >= nextOptionBank.length
+            ? existingOptionBank
+            : nextOptionBank,
         questions: mergedQuestions,
       });
     }
@@ -155,6 +168,7 @@ export function importedDraftToPaper(
   const byStage = new Map<Cet6ContentStage, Question[]>();
   for (const block of draft.blocks) {
     const spec = CET6_STAGE_SPECS[block.stage];
+    const sharedOptions = importedSharedOptions(block);
     const questions = block.questions.map((source, index) => {
       const common = {
         id: `import-${block.stage}-${block.groupId}-${source.sourceQuestionNumber ?? index + 1}`,
@@ -207,10 +221,13 @@ export function importedDraftToPaper(
         ...common,
         type: "single-choice" as const,
         options:
-          block.stage === "reading-b" && source.options.length === 0
-            ? Array.from({ length: 13 }, (_, optionIndex) =>
-                String.fromCharCode(65 + optionIndex),
-              )
+          sharedOptions.length > 0
+            ? sharedOptions
+            : block.stage === "reading-b" &&
+                source.options.length === 0
+              ? Array.from({ length: 13 }, (_, optionIndex) =>
+                  String.fromCharCode(65 + optionIndex),
+                )
             : source.options,
         correctAnswer: Math.max(0, answerIndex),
         explanation: source.explanation || undefined,
@@ -253,6 +270,19 @@ function importedPaperTitle(draft: ImportedPaperDraft): string {
     return [date, "六级真题", set].filter(Boolean).join(" ");
   }
   return draft.title.trim();
+}
+
+function importedSharedOptions(block: ImportedBlock): string[] {
+  if (block.optionBank.length > 0) return block.optionBank;
+  if (block.stage !== "reading-a" && block.stage !== "reading-b") {
+    return [];
+  }
+  return (
+    block.questions
+      .map((question) => question.options)
+      .sort((left, right) => right.length - left.length)
+      .find((options) => options.length >= 10) ?? []
+  );
 }
 
 function formatExamDate(value: string): string {
