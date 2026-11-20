@@ -495,6 +495,57 @@ Return exactly:
   ];
 }
 
+export function buildCet6ReadingCSingleQuestionRepairPrompt(
+  passagePlan: ReadingCPassagePlan,
+  passage: string,
+  question: Question,
+  questionIndex: number,
+  validationError: string,
+): ApiMessage[] {
+  const questionNumber =
+    (passagePlan.index === 0 ? 46 : 51) + questionIndex;
+  const answerIndex = passagePlan.answerIndexes[questionIndex];
+  const answerLetter = String.fromCharCode(65 + answerIndex);
+  return [
+    { role: "system", content: SYSTEM_PROMPT },
+    {
+      role: "user",
+      content: `Repair only Reading Section C question ${questionNumber}.
+
+Frozen passage:
+${passage}
+
+Current question:
+${JSON.stringify(question, null, 2)}
+
+Validation issues for this question:
+${validationError}
+
+Required result:
+- Return exactly one question object with questionNumber ${questionNumber}.
+- The question kind must remain ${question.examSection?.questionKind}.
+- The evidence paragraph must remain paragraph ${question.examSection?.para}.
+- Put the correct option content at ${answerLetter} (zero-based index ${answerIndex}).
+- Use four natural options of 8-11 words. At least one distractor must be at
+  least as long as the correct option, and the longest-minus-shortest spread
+  must be at most five words.
+- Include at least two exact meaningful content words from a verbatim passage
+  phrase in the correct option, while keeping every identical passage run to at
+  most three words and correct-option overlap below 40%.
+- At least two distractors must use locatable passage details and change one
+  decisive dimension: actor, object, time, cause, degree, or scope.
+- The strongest distractor must stay below 50% evidence overlap or trail the
+  correct option by at least 15 percentage points.
+- The Chinese explanation must quote the same short English passage evidence,
+  discuss A)-D), name each error type, and end with “故选 ${answerLetter}。”.
+- Do not repeat the passage in examSection; the application already owns it.
+
+Return exactly:
+{"questions":[{"id":"unique","type":"single-choice","content":"...","options":["...","...","...","..."],"correctAnswer":${answerIndex},"explanation":"...","score":14.2,"examSection":{"kind":"cet-reading-c","groupId":"passage-${passagePlan.index + 1}","title":"Reading Section C · Passage ${passagePlan.index + 1}","questionNumber":${questionNumber}}}]}`,
+    },
+  ];
+}
+
 function singleChoiceFormat(
   stage: Cet6ContentStage,
   kind: string,

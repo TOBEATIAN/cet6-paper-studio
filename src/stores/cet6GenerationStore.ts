@@ -16,6 +16,7 @@ import {
   buildCet6Paper,
   parseCet6Blueprint,
   parseCet6ReadingBPassage,
+  parseCet6ReadingCQuestion,
   parseCet6ReadingCPassage,
   parseCet6ReadingCQuestions,
   parseCet6Stage,
@@ -64,6 +65,7 @@ import {
   buildCet6ReadingCPassagePrompt,
   buildCet6ReadingCGroupRepairPrompt,
   buildCet6ReadingCQuestionsPrompt,
+  buildCet6ReadingCSingleQuestionRepairPrompt,
   buildCet6RepairMessage,
   buildCet6StagePrompt,
 } from "../lib/cet/pipelinePrompts";
@@ -1429,6 +1431,20 @@ async function repairReadingCQualityGroups(
 ): Promise<
   { ok: true; questions: Question[] } | { ok: false; error: string }
 > {
+  const questionNumbers = readingCQuestionNumbersForError(qualityError);
+  if (questionNumbers.length > 0) {
+    return repairReadingCQualityQuestions(
+      initialQuestions,
+      plan,
+      passages,
+      qualityError,
+      questionNumbers,
+      provider,
+      apiKey,
+      messages,
+      replies,
+    );
+  }
   const groupIndexes = readingCGroupIndexesForError(qualityError);
   if (groupIndexes.length === 0) return { ok: false, error: qualityError };
   const repairs = await Promise.all(
@@ -1499,6 +1515,133 @@ async function repairReadingCQualityGroups(
   return { ok: true, questions };
 }
 
+async function repairReadingCQualityQuestions(
+  initialQuestions: readonly Question[],
+  plan: ReadingCPlan,
+  passages: readonly string[],
+  qualityError: string,
+  questionNumbers: readonly number[],
+  provider: {
+    baseUrl: string;
+    model: string;
+    temperature?: number;
+    maxTokens?: number;
+  },
+  apiKey: string,
+  messages: { role: string; content: string }[],
+  replies: string[],
+): Promise<
+  { ok: true; questions: Question[] } | { ok: false; error: string }
+> {
+  const repairs = await Promise.all(
+    questionNumbers.map(async (questionNumber) => {
+      const question = initialQuestions.find(
+        (candidate) =>
+          candidate.examSection?.questionNumber === questionNumber,
+      );
+      if (!question) {
+        return {
+          questionNumber,
+          error: `Q${questionNumber} is missing from the current candidate.`,
+        };
+      }
+      const passageIndex = questionNumber <= 50 ? 0 : 1;
+      const questionIndex =
+        questionNumber - (passageIndex === 0 ? 46 : 51);
+      const passagePlan = plan.passages[passageIndex];
+      const relevantError = readingCErrorForQuestion(
+        qualityError,
+        questionNumber,
+      );
+      const repairMessages = buildCet6ReadingCSingleQuestionRepairPrompt(
+        passagePlan,
+        passages[passageIndex],
+        question,
+        questionIndex,
+        relevantError,
+      );
+      messages.push(...repairMessages);
+      const reply = await storage.completeChat({
+        baseUrl: provider.baseUrl,
+        apiKey,
+        model: provider.model,
+        messages: repairMessages,
+        temperature: provider.temperature,
+        maxTokens: stageMaxTokens("reading-c", provider.maxTokens),
+      });
+      replies.push(reply);
+      const parsed = parseCet6ReadingCQuestion(
+        reply,
+        passages[passageIndex],
+        passagePlan.index,
+        questionIndex,
+        passagePlan.sourceParagraphs[questionIndex],
+        passagePlan.questionKinds[questionIndex],
+        passagePlan.answerIndexes[questionIndex],
+        passagePlan.source,
+      );
+      return parsed.ok
+        ? { questionNumber, question: parsed.value }
+        : {
+            questionNumber,
+            error: `Q${questionNumber} repair failed:\n${parsed.error}`,
+          };
+    }),
+  );
+  const errors = repairs.flatMap((repair) =>
+    "error" in repair && repair.error ? [repair.error] : [],
+  );
+  if (errors.length > 0) {
+    return { ok: false, error: errors.join("\n\n") };
+  }
+  const replacements = new Map(
+    repairs.flatMap((repair) =>
+      "question" in repair && repair.question
+        ? [[repair.questionNumber, repair.question] as const]
+        : [],
+    ),
+  );
+  return {
+    ok: true,
+    questions: [
+      ...initialQuestions.filter(
+        (question) =>
+          !replacements.has(question.examSection?.questionNumber ?? 0),
+      ),
+      ...replacements.values(),
+    ].sort(
+      (left, right) =>
+        (left.examSection?.questionNumber ?? 0) -
+        (right.examSection?.questionNumber ?? 0),
+    ),
+  };
+}
+
+function readingCQuestionNumbersForError(error: string): number[] {
+  return [
+    ...new Set(
+      [...error.matchAll(/\bQ(\d{1,2})\b/g)]
+        .map((match) => Number(match[1]))
+        .filter((number) => number >= 46 && number <= 55),
+    ),
+  ];
+}
+
+function readingCErrorForQuestion(
+  error: string,
+  questionNumber: number,
+): string {
+  return error
+    .split("\n")
+    .filter((line) => {
+      const numbers = [...line.matchAll(/\bQ(\d{1,2})\b/g)].map((match) =>
+        Number(match[1]),
+      );
+      return numbers.length === 0 || numbers.includes(questionNumber);
+    })
+    .join("\n");
+}
+
 function readingCGroupIndexesForError(error: string): Array<0 | 1> {
   const indexes = new Set<0 | 1>();
   for (const match of error.matchAll(/\bQ(\d{1,2})\b/g)) {
@@ -1506,8 +1649,9 @@ function readingCGroupIndexesForError(error: string): Array<0 | 1> {
     if (number >= 46 && number <= 50) indexes.add(0);
     if (number >= 51 && number <= 55) indexes.add(1);
   }
+  if (indexes.size > 0) return [...indexes];
   if (
-    /两篇|四选项均值|干扰项不短|重合率|连续原文|双支撑|段落长度/i.test(
+    /两篇|四选项均值|干扰项不短|重合率|连续原文|双支撑|段落长度|具名人物|named-opinion/i.test(
       error,
     )
   ) {

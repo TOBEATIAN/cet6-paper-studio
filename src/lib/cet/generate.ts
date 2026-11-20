@@ -287,6 +287,7 @@ export function parseCet6ReadingCQuestions(
     }
     return {
       ...question,
+      id: `cet6-reading-c-${passageIndex + 1}-${index + 1}`,
       score: 14.2,
       examSection: {
         ...question.examSection,
@@ -306,6 +307,73 @@ export function parseCet6ReadingCQuestions(
   return {
     ok: true,
     value: balanceChoiceAnswers(questions, answerIndexes),
+  };
+}
+
+export function parseCet6ReadingCQuestion(
+  reply: string,
+  passage: string,
+  passageIndex: 0 | 1,
+  questionIndex: number,
+  sourceParagraph: number,
+  questionKind: ReadingCQuestionKind,
+  answerIndex: number,
+  source: {
+    outlet: string;
+    type: ReadingCSourceType;
+    topic: string;
+  },
+): ParseResult<Question> {
+  const result = validateQuestions(reply);
+  if (!result.ok) return result;
+  if (result.questions.length !== 1) {
+    return {
+      ok: false,
+      error: `Expected 1 Reading C question, received ${result.questions.length}.`,
+      raw: reply,
+    };
+  }
+  const question = result.questions[0];
+  if (question.type !== "single-choice") {
+    return {
+      ok: false,
+      error: "Reading C repair question must be single-choice.",
+      raw: reply,
+    };
+  }
+  if (question.options.length !== 4) {
+    return {
+      ok: false,
+      error: "Reading C repair question must have four options.",
+      raw: reply,
+    };
+  }
+  if (question.correctAnswer < 0 || question.correctAnswer >= 4) {
+    return {
+      ok: false,
+      error: "Reading C repair correctAnswer is outside the options array.",
+      raw: reply,
+    };
+  }
+  const firstNumber = passageIndex === 0 ? 46 : 51;
+  const normalized = {
+    ...question,
+    id: `cet6-reading-c-${passageIndex + 1}-${questionIndex + 1}`,
+    score: 14.2,
+    examSection: {
+      ...question.examSection,
+      kind: "cet-reading-c",
+      groupId: `cet6-reading-c-passage-${passageIndex + 1}`,
+      title: `Reading Section C · Passage ${passageIndex + 1}`,
+      questionNumber: firstNumber + questionIndex,
+      para: sourceParagraph,
+      questionKind,
+      ...(questionIndex === 0 ? { passage, source } : {}),
+    },
+  };
+  return {
+    ok: true,
+    value: balanceChoiceAnswers([normalized], [answerIndex])[0],
   };
 }
 

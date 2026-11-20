@@ -890,7 +890,15 @@ function auditReadingC(
     "reading-c:option-average",
     "仔细阅读套级四选项均值 8-10 词",
     optionStats.average >= 8 && optionStats.average <= 10,
-    optionStats.average.toFixed(1),
+    `${optionStats.average.toFixed(1)}; ${choices
+      .filter((question) => {
+        const average =
+          question.options.reduce((sum, option) => sum + wordCount(option), 0) /
+          4;
+        return average < 8 || average > 10;
+      })
+      .map((question) => `Q${question.examSection?.questionNumber ?? "?"}`)
+      .join(",") || "0"}`,
   );
   const longOptionQuestions = choices.filter(
     (question) =>
@@ -904,6 +912,14 @@ function auditReadingC(
     longOptionQuestions >= 4,
     String(longOptionQuestions),
   );
+  const uniqueCorrectLongest = choices.filter((question) => {
+    const lengths = question.options.map(wordCount);
+    const maximum = Math.max(...lengths);
+    return (
+      lengths[question.correctAnswer] === maximum &&
+      lengths.filter((length) => length === maximum).length === 1
+    );
+  });
   add(
     "reading-c:option-length",
     "四选项均≥3词、每题长度差≤6词、正确项最长≤4/10",
@@ -912,19 +928,25 @@ function auditReadingC(
     ) &&
       optionStats.maxSpread <= 6 &&
       optionStats.correctLongest <= 4,
-    `正确项最长 ${optionStats.correctLongest}；最大差 ${optionStats.maxSpread}`,
+    `正确项最长 ${optionStats.correctLongest}；最大差 ${optionStats.maxSpread}；${uniqueCorrectLongest
+      .map((question) => `Q${question.examSection?.questionNumber ?? "?"}`)
+      .join(",") || "0"}`,
   );
+  const shortCorrectDistractors = choices.filter((question) => {
+    const lengths = question.options.map(wordCount);
+    const correctLength = lengths[question.correctAnswer];
+    return !lengths.some(
+      (length, index) =>
+        index !== question.correctAnswer && length >= correctLength,
+    );
+  });
   add(
     "reading-c:distractor-length",
     "每题至少一个干扰项不短于正确项",
-    choices.every((question) => {
-      const lengths = question.options.map(wordCount);
-      const correctLength = lengths[question.correctAnswer];
-      return lengths.some(
-        (length, index) =>
-          index !== question.correctAnswer && length >= correctLength,
-      );
-    }),
+    shortCorrectDistractors.length === 0,
+    shortCorrectDistractors
+      .map((question) => `Q${question.examSection?.questionNumber ?? "?"}`)
+      .join(",") || "0",
   );
   add(
     "reading-c:stem-length",
@@ -1104,7 +1126,10 @@ function auditReadingC(
     "reading-c:support-overlap",
     "正确项与支撑文段重合率均值 ≤40%",
     support.reduce((sum, value) => sum + value, 0) / Math.max(1, support.length) <= 0.4,
-    `${((support.reduce((sum, value) => sum + value, 0) / Math.max(1, support.length)) * 100).toFixed(0)}%`,
+    `${((support.reduce((sum, value) => sum + value, 0) / Math.max(1, support.length)) * 100).toFixed(0)}%; ${choices
+      .filter((_, index) => support[index] > 0.4)
+      .map((question) => `Q${question.examSection?.questionNumber ?? "?"}`)
+      .join(",") || "0"}`,
   );
   const runs = choices.map((question) => {
     const group = passages.find((item) => item.questions.includes(question));
@@ -1116,7 +1141,10 @@ function auditReadingC(
     "reading-c:verbatim",
     "正确项最长连续原文 ≤3 词，≥3 词的题 ≤2",
     Math.max(0, ...runs) <= 3 && runs.filter((run) => run >= 3).length <= 2,
-    runs.join(","),
+    `${runs.join(",")}; ${choices
+      .filter((_, index) => runs[index] >= 3)
+      .map((question) => `Q${question.examSection?.questionNumber ?? "?"}`)
+      .join(",") || "0"}`,
   );
   const readingCRisks = collectReadingCRisks(choices);
   const resolvedRisks = readingCRisks.filter((risk) => {
@@ -1195,9 +1223,17 @@ function auditReadingC(
     "至少一题询问具名人物或机构观点",
     choices.some(
       (question) =>
-        /^What does\b/i.test(question.content) &&
+        /^(?:What|How|Why)\b/i.test(question.content) &&
         /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/.test(question.content),
     ),
+    `Q${choices
+      .filter(
+        (question) =>
+          /^(?:What|How|Why)\b/i.test(question.content) &&
+          /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/.test(question.content),
+      )
+      .map((question) => question.examSection?.questionNumber ?? "?")
+      .join(",") || "0"}`,
   );
 }
 

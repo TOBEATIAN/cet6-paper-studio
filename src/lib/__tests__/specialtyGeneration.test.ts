@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildCet6SpecialtyBlueprintPrompt } from "../cet/pipelinePrompts";
 import {
   buildCet6Paper,
+  parseCet6ReadingCQuestion,
   parseCet6ReadingCQuestions,
 } from "../cet/generate";
 import type { Question } from "../types/exam";
@@ -103,5 +104,45 @@ describe("specialty generation", () => {
     ]);
     expect(choices[0].options[1]).toContain("Correct option 1");
     expect(choices[0].explanation).toContain("故选 B");
+  });
+
+  it("parses one repaired Reading C question without rewriting its group", () => {
+    const reply = JSON.stringify({
+      questions: [
+        {
+          id: "repaired-q48",
+          type: "single-choice",
+          content:
+            "What contrast does the passage draw between steady practice and brief intensive study?",
+          options: [
+            "Steady practice leaves only vivid memories of hard work.",
+            "Brief intensive study guarantees stronger retention in every case.",
+            "Steady practice builds modest fluency while brief study mainly feels effortful.",
+            "Both approaches produce identical retention whenever total hours match.",
+          ],
+          correctAnswer: 0,
+          explanation:
+            "A) 正确概括。 B) 绝对化。 C) 张冠李戴。 D) 无中生有。故选 A。",
+          score: 14.2,
+        },
+      ],
+    });
+    const parsed = parseCet6ReadingCQuestion(
+      reply,
+      "A fixed passage.",
+      0,
+      2,
+      4,
+      "detail",
+      2,
+      { outlet: "六级智卷原创编辑部", type: "研究报告", topic: "practice" },
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.value.type !== "single-choice") return;
+    expect(parsed.value.correctAnswer).toBe(2);
+    expect(parsed.value.examSection?.questionNumber).toBe(48);
+    expect(parsed.value.options[2]).toContain(
+      "Steady practice leaves only vivid memories",
+    );
   });
 });

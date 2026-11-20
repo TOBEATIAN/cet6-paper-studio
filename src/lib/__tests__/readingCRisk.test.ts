@@ -124,4 +124,14 @@ describe("Reading C strong-distractor adjudication", () => {
       }),
     ).toBe(false);
   });
+
+  it("accepts named-person inference stems as opinion questions", () => {
+    const question = riskyQuestion();
+    question.content =
+      "What can reasonably be inferred from Dr. Miriam Chen's warning about the pilot?";
+    const check = auditCet6Stage("reading-c", [question]).checks.find(
+      (item) => item.id === "reading-c:named-opinion",
+    );
+    expect(check?.passed).toBe(true);
+  });
 });
