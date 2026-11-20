@@ -18,6 +18,11 @@ import {
   parseImportedPageDraft,
 } from "../lib/import/realExamImport";
 import {
+  applyProvidedAnswers,
+  isAnswerKeyPage,
+  parseProvidedAnswers,
+} from "../lib/import/answerKey";
+import {
   emptyAnswerBank,
   entriesFromConfirmedDraft,
   lookupBankAnswers,
@@ -30,6 +35,7 @@ import {
   readImportFileAsPageImages,
 } from "../lib/import/pdfPages";
 import {
+  assignListeningAudioPaths,
   detectExamDate,
   detectSetRanges,
   setPageText,
@@ -65,11 +71,13 @@ interface RealExamImportState {
     mode: "full" | "section";
     selectedStages: Cet6ContentStage[];
     listeningAudioPath?: string;
+    listeningAudioPaths?: string[];
   }) => Promise<void>;
   searchAnswers: () => Promise<void>;
   searchSetAnswers: (id: string) => Promise<void>;
   selectSet: (id: string) => void;
   toggleSet: (id: string, enabled: boolean) => void;
+  updateSetAudio: (id: string, path: string) => void;
   updateSetRange: (id: string, pageStart: number, pageEnd: number) => void;
   retrySet: (id: string) => Promise<void>;
   replaceDraft: (draft: ImportedPaperDraft) => void;
@@ -193,8 +201,28 @@ export const useRealExamImportStore = create<RealExamImportState>((set, get) => 
           cached: ocr?.cached ?? false,
         };
       });
-      const ranges = detectSetRanges(textPages);
-      const sets: ImportedSetDraft[] = ranges.map((range) => ({
+      const answerKeyPages = textPages.filter((page) =>
+        isAnswerKeyPage(page.text),
+      );
+      const examPages = textPages.filter(
+        (page) => !answerKeyPages.some((key) => key.pageNumber === page.pageNumber),
+      );
+      if (examPages.length === 0) throw new Error("realImport.errors.noPages");
+      const ranges = detectSetRanges(examPages);
+      const audioPaths = [
+        ...new Set(
+          (input.listeningAudioPaths ??
+            (input.listeningAudioPath ? [input.listeningAudioPath] : [])).filter(
+            Boolean,
+          ),
+        ),
+      ];
+      const assignedAudioPaths = assignListeningAudioPaths(
+        ranges.map((range) => range.setLabel),
+        audioPaths,
+      );
+      const providedAnswers = parseProvidedAnswers(answerKeyPages);
+      const sets: ImportedSetDraft[] = ranges.map((range, index) => ({
         id: `${range.pageStart}-${range.pageEnd}`,
         setLabel: range.setLabel,
         examDate: detectExamDate(
@@ -205,11 +233,16 @@ export const useRealExamImportStore = create<RealExamImportState>((set, get) => 
         enabled: true,
         status: "pending",
         error: "",
+        listeningAudioPath: assignedAudioPaths[index] ?? "",
+        providedAnswers: providedAnswers.filter(
+          (answer) => answer.setLabel === range.setLabel,
+        ),
       }));
       const session = ImportSessionSchema.parse({
         sourceHash,
         sourceFileName: input.paths.map(fileName).join(", "),
-        listeningAudioPath: input.listeningAudioPath ?? "",
+        listeningAudioPath: audioPaths[0] ?? "",
+        listeningAudioPaths: audioPaths,
         mode: input.mode,
         selectedStages: input.selectedStages,
         pages: textPages,
@@ -402,6 +435,10 @@ export const useRealExamImportStore = create<RealExamImportState>((set, get) => 
     updateSet(get, set, id, { enabled });
   },
 
+  updateSetAudio: (id, path) => {
+    updateSet(get, set, id, { listeningAudioPath: path });
+  },
+
   updateSetRange: (id, pageStart, pageEnd) => {
     const session = get().session;
     if (!session) return;
@@ -468,17 +505,21 @@ ${pageText.slice(0, 70_000)}`,
         ],
       });
       const pageDraft = parseImportedPageDraft(reply);
-      const draft = ImportedPaperDraftSchema.parse({
+      const draftWithAudio = ImportedPaperDraftSchema.parse({
         ...mergeImportedPages([pageDraft], {
           mode: session.mode,
           selectedStages: session.selectedStages,
           sourceFileName: session.sourceFileName,
           sourceHash: session.sourceHash,
-          listeningAudioPath: session.listeningAudioPath,
+          listeningAudioPath: item.listeningAudioPath,
         }),
         examDate: item.examDate || pageDraft.examDate,
         setLabel: item.setLabel || pageDraft.setLabel,
       });
+      const draft = applyProvidedAnswers(
+        draftWithAudio,
+        item.providedAnswers,
+      );
       const answerTable = answerTableForDraft(draft);
       updateSet(get, set, id, {
         status: "ready",
@@ -711,12 +752,15 @@ ${pageText.slice(0, 70_000)}`,
 }));
 
 function answerQueries(draft: ImportedPaperDraft): string[] {
-  const identity = [draft.examDate, draft.setLabel, draft.title]
+  const identity = [draft.examDate, draft.setLabel]
     .filter(Boolean)
     .join(" ");
+  const identityQuery = `${
+    identity || draft.sourceFileName
+  } 大学英语六级 真题 答案`;
   const passageQueries = draft.blocks
     .filter((block) => block.passage.trim())
-    .slice(0, 4)
+    .slice(0, 3)
     .map((block) => {
       const words = block.passage
         .replace(/\s+/g, " ")
@@ -728,9 +772,7 @@ function answerQueries(draft: ImportedPaperDraft): string[] {
       ].join(" ");
       return `${identity} 六级 "${fingerprint}" 答案`;
     });
-  return passageQueries.length > 0
-    ? passageQueries
-    : [`${identity || draft.sourceFileName} 大学英语六级 真题 答案`];
+  return [...new Set([identityQuery, ...passageQueries])];
 }
 
 function buildAnswerExtractionRequest(

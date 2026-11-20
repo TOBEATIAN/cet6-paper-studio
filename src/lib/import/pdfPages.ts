@@ -74,9 +74,10 @@ Rules:
 - For passage continuation pages, repeat the groupId and return only new text/questions.
 - Ignore QR codes, advertisements, URLs, watermarks and page footers.
 - Reading A stores the A-O bank as the first question's options.
-- Reading B stores paragraph letters A-M as options.
+- Reading B stores all printed paragraph letters as options; real papers may range A-M or A-O.
 - Writing returns one question without sourceQuestionNumber.
 - Translation returns one question without sourceQuestionNumber.
+- An official set may omit Listening entirely; return no listening blocks instead of inventing them.
 - If a requested selected stage is absent from this page, return an empty blocks array.`;
 }
 
@@ -104,9 +105,10 @@ Rules:
 - Reconstruct shared passages/transcripts and preserve paragraph breaks.
 - Ignore QR codes, ads, watermarks, page headers and footers.
 - Reading A: 10 blanks and a shared A-O bank.
-- Reading B: statements 36-45 with paragraph letters A-M.
+- Reading B: statements 36-45 with paragraph letters A-M or A-O, matching the source.
 - Reading C: two passage groups and questions 46-55.
 - Writing and translation each return one task without sourceQuestionNumber.
+- An official set may omit Listening entirely; do not synthesize a missing listening section.
 - Report uncertain page splits and missing fields in warnings; never hallucinate.`;
 }
 

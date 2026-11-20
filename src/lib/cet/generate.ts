@@ -34,6 +34,7 @@ import {
   classifyWritingOpening,
   type WritingOpeningStyle,
 } from "./writingPlan";
+import { balanceChoiceAnswers } from "./answerOrder";
 
 export function normalizeWritingOpeningQuotes(content: string): string {
   const normalized = content.replace(
@@ -276,9 +277,12 @@ export function parseCet6ReadingCQuestions(
     if (question.options.length !== 4) {
       errors.push(`Question ${firstNumber + index} must have four options.`);
     }
-    if (question.correctAnswer !== answerIndexes[index]) {
+    if (
+      question.correctAnswer < 0 ||
+      question.correctAnswer >= question.options.length
+    ) {
       errors.push(
-        `Question ${firstNumber + index} correctAnswer must be ${answerIndexes[index]}.`,
+        `Question ${firstNumber + index} correctAnswer is outside the options array.`,
       );
     }
     return {
@@ -296,9 +300,13 @@ export function parseCet6ReadingCQuestions(
       },
     };
   });
-  return errors.length === 0
-    ? { ok: true, value: questions }
-    : { ok: false, error: errors.join("\n"), raw: reply };
+  if (errors.length > 0) {
+    return { ok: false, error: errors.join("\n"), raw: reply };
+  }
+  return {
+    ok: true,
+    value: balanceChoiceAnswers(questions, answerIndexes),
+  };
 }
 
 export function validateCet6StageQuestions(

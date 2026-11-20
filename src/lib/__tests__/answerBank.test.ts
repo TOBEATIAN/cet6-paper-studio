@@ -121,4 +121,50 @@ describe("answer bank", () => {
       "conflict",
     );
   });
+
+  it("never overrides answers parsed from the exam's own answer page", () => {
+    const embedded = ImportedPaperDraftSchema.parse({
+      mode: "section",
+      selectedStages: ["reading-c"],
+      examDate: "2025-06",
+      setLabel: "第一套",
+      blocks: [
+        {
+          groupId: "passage-1",
+          stage: "reading-c",
+          passage: "Unique embedded-key passage for matching.",
+          questions: [
+            {
+              sourceQuestionNumber: 46,
+              content: "46",
+              options: ["A", "B", "C", "D"],
+              answerLetter: "A",
+              answerStatus: "official",
+            },
+          ],
+        },
+      ],
+    });
+    const bank = AnswerBankSchema.parse({
+      entries: [
+        {
+          id: "conflict",
+          examDate: "2025-06",
+          setLabel: "第一套",
+          stage: "reading-c",
+          groupId: "passage-1",
+          sourceQuestionNumber: 46,
+          answerLetter: "D",
+          status: "single-source",
+          sources: [],
+          signature: { first: "", last: "", wordCount: 0 },
+          confirmedAt: "2026-11-20T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(lookupBankAnswers(embedded, bank).rows[0]).toMatchObject({
+      answerLetter: "A",
+      status: "official",
+    });
+  });
 });

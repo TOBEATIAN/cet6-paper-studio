@@ -13,6 +13,7 @@ src-tauri/sidecars/build/
 src-tauri/sidecars/dist/
 src-tauri/sidecars/.tmp-*/
 src-tauri/sidecars/**/__pycache__/
+src-tauri/target-codex/
 src-tauri/resources/kitten-tts.exe
 src-tauri/resources/paddle-ocr.exe
 

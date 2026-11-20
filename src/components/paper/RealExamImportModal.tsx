@@ -15,6 +15,7 @@ import {
   type AnswerSearchRow,
 } from "../../lib/types/import";
 import { useRealExamImportStore } from "../../stores/realExamImportStore";
+import { answerChoicesForStage } from "../../lib/import/answerKey";
 import { primaryBtn, secondaryBtn } from "../../lib/ui/styles";
 import { stageLabelKey } from "../../lib/i18n/stageLabel";
 
@@ -56,6 +57,9 @@ export function RealExamImportModal({
   const clear = useRealExamImportStore((state) => state.clear);
   const selectSet = useRealExamImportStore((state) => state.selectSet);
   const toggleSet = useRealExamImportStore((state) => state.toggleSet);
+  const updateSetAudio = useRealExamImportStore(
+    (state) => state.updateSetAudio,
+  );
   const updateSetRange = useRealExamImportStore(
     (state) => state.updateSetRange,
   );
@@ -65,7 +69,7 @@ export function RealExamImportModal({
     "reading-c",
   ]);
   const [questionFiles, setQuestionFiles] = useState<string[]>([]);
-  const [audioFile, setAudioFile] = useState("");
+  const [audioFiles, setAudioFiles] = useState<string[]>([]);
   const [draftText, setDraftText] = useState("");
   const [draftError, setDraftError] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -136,7 +140,7 @@ export function RealExamImportModal({
 
   async function chooseAudio() {
     const selected = await open({
-      multiple: false,
+      multiple: true,
       directory: false,
       filters: [
         {
@@ -145,7 +149,13 @@ export function RealExamImportModal({
         },
       ],
     });
-    setAudioFile(typeof selected === "string" ? selected : "");
+    setAudioFiles(
+      typeof selected === "string"
+        ? [selected]
+        : Array.isArray(selected)
+          ? selected
+          : [],
+    );
   }
 
   async function chooseBankImport() {
@@ -172,7 +182,7 @@ export function RealExamImportModal({
       mode,
       selectedStages:
         mode === "full" ? [...CET6_CONTENT_STAGES] : selectedStages,
-      listeningAudioPath: audioFile,
+      listeningAudioPaths: audioFiles,
     });
   }
 
@@ -298,7 +308,9 @@ export function RealExamImportModal({
                   {t("realImport.chooseAudio")}
                 </button>
                 <p className="mt-2 break-all text-xs text-muted-foreground">
-                  {audioFile || t("realImport.optional")}
+                  {audioFiles.length > 0
+                    ? audioFiles.map(fileName).join("\n")
+                    : t("realImport.optional")}
                 </p>
                 <div className="mt-4 border-t border-border pt-3">
                   <p className="text-xs font-medium">
@@ -378,6 +390,28 @@ export function RealExamImportModal({
                             end: item.pageEnd,
                           })}
                         </p>
+                        <label className="mt-1 block text-xs text-muted-foreground">
+                          {t("realImport.setAudio")}
+                          <select
+                            value={item.listeningAudioPath}
+                            onChange={(event) =>
+                              updateSetAudio(
+                                item.id,
+                                event.currentTarget.value,
+                              )
+                            }
+                            className="mt-1 h-7 w-full rounded border border-border bg-background px-1.5 text-foreground"
+                          >
+                            <option value="">
+                              {t("realImport.noListeningAudio")}
+                            </option>
+                            {audioFiles.map((path) => (
+                              <option key={path} value={path}>
+                                {fileName(path)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                       </button>
                       <input
                         type="checkbox"
@@ -600,6 +634,7 @@ export function RealExamImportModal({
                 onClick={() => {
                   clear();
                   setQuestionFiles([]);
+                  setAudioFiles([]);
                 }}
                 className={secondaryBtn}
               >
@@ -644,7 +679,7 @@ function AnswerRow({
           className="h-7 rounded border border-border bg-background px-1.5"
         >
           <option value="">—</option>
-          {["A", "B", "C", "D"].map((letter) => (
+          {answerChoicesForStage(row.stage).map((letter) => (
             <option key={letter} value={letter}>
               {letter}
             </option>
@@ -667,7 +702,11 @@ function AnswerRow({
             </a>
           ))}
           {row.sources.length === 0 && (
-            <span className="text-muted-foreground">{t("realImport.noSource")}</span>
+            <span className="text-muted-foreground">
+              {row.status === "official"
+                ? t("realImport.embeddedAnswer")
+                : t("realImport.noSource")}
+            </span>
           )}
         </div>
       </td>
@@ -686,4 +725,8 @@ function safeHost(url: string): string {
 function formatElapsed(durationMs: number): string {
   const seconds = Math.max(0, Math.floor(durationMs / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function fileName(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path;
 }

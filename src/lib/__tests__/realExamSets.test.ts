@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assignListeningAudioPaths,
   detectExamDate,
   detectSetRanges,
   setPageText,
@@ -50,5 +51,31 @@ describe("real-exam set detection", () => {
         { pageNumber: 2, text: "Question page two" },
       ]),
     ).toEqual([{ setLabel: "真题", pageStart: 1, pageEnd: 2 }]);
+  });
+
+  it("assigns two audio files to the first two of three sets", () => {
+    expect(
+      assignListeningAudioPaths(
+        ["第一套", "第二套", "第三套"],
+        ["E:\\audio\\2025年6月第一套.mp3", "E:\\audio\\2025年6月第二套.mp3"],
+      ),
+    ).toEqual([
+      "E:\\audio\\2025年6月第一套.mp3",
+      "E:\\audio\\2025年6月第二套.mp3",
+      "",
+    ]);
+  });
+
+  it("maps named audio files even when selection order is reversed", () => {
+    expect(
+      assignListeningAudioPaths(
+        ["第一套", "第二套", "第三套"],
+        ["E:\\audio\\第2套.mp3", "E:\\audio\\第1套.mp3"],
+      ),
+    ).toEqual([
+      "E:\\audio\\第1套.mp3",
+      "E:\\audio\\第2套.mp3",
+      "",
+    ]);
   });
 });

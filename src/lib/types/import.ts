@@ -121,6 +121,18 @@ export const ImportSetRangeSchema = z.object({
 
 export type ImportSetRange = z.infer<typeof ImportSetRangeSchema>;
 
+export const ProvidedAnswerSchema = z.object({
+  setLabel: z.string().min(1),
+  stage: Cet6ContentStageSchema,
+  sourceQuestionNumber: z.number().int().positive(),
+  answerLetter: z
+    .string()
+    .regex(/^[A-O]$/i)
+    .transform((value) => value.toUpperCase()),
+});
+
+export type ProvidedAnswer = z.infer<typeof ProvidedAnswerSchema>;
+
 export const AnswerSourceSchema = z.object({
   title: z.string().default(""),
   url: z
@@ -134,7 +146,7 @@ export const AnswerSearchRowSchema = z.object({
   stage: Cet6ContentStageSchema,
   groupId: z.string().default(""),
   sourceQuestionNumber: z.number().int().positive(),
-  answerLetter: z.string().regex(/^[A-D]$/i).optional(),
+  answerLetter: z.string().regex(/^[A-O]$/i).optional(),
   status: z.enum([
     "provided",
       "bank",
@@ -168,6 +180,8 @@ export const ImportedSetDraftSchema = z.object({
     .enum(["pending", "extracting", "ready", "error"])
     .default("pending"),
   error: z.string().default(""),
+  listeningAudioPath: z.string().default(""),
+  providedAnswers: z.array(ProvidedAnswerSchema).default([]),
   draft: ImportedPaperDraftSchema.optional(),
   answers: AnswerSearchResultSchema.optional(),
 });
@@ -177,6 +191,7 @@ export const ImportSessionSchema = z.object({
   sourceHash: z.string().default(""),
   sourceFileName: z.string().default(""),
   listeningAudioPath: z.string().default(""),
+  listeningAudioPaths: z.array(z.string()).default([]),
   mode: ImportModeSchema.default("full"),
   selectedStages: z.array(Cet6ContentStageSchema).default([]),
   pages: z
@@ -201,7 +216,7 @@ export const AnswerCandidateResponseSchema = z.object({
       stage: Cet6ContentStageSchema,
       groupId: z.string().default(""),
       sourceQuestionNumber: z.number().int().positive(),
-      answerLetter: z.string().regex(/^[A-D]$/i),
+      answerLetter: z.string().regex(/^[A-O]$/i),
       sources: z.array(AnswerSourceSchema).default([]),
     }),
   ).default([]),

@@ -70,7 +70,11 @@ export function Cet6GenerationProgress() {
   const elapsedMs = generationStartedAt
     ? Math.max(0, now - Date.parse(generationStartedAt))
     : 0;
-  const remainingMs = Math.max(0, estimatedTotalMs - elapsedMs);
+  const overrunMs = Math.max(0, elapsedMs - estimatedTotalMs);
+  const remainingMs =
+    overrunMs > 0
+      ? 60_000
+      : Math.max(0, estimatedTotalMs - elapsedMs);
 
   async function copyDiagnostics() {
     if (!diagnosticText) return;
@@ -148,6 +152,16 @@ export function Cet6GenerationProgress() {
                       t("cet6.etaLessThanMinute"),
                     ),
                   })}
+              {overrunMs > 0 && (
+                <span className="ml-1 text-amber-700 dark:text-amber-300">
+                  {t("cet6.etaRetrying", {
+                    overrun: formatGenerationDuration(
+                      overrunMs,
+                      t("cet6.etaLessThanMinute"),
+                    ),
+                  })}
+                </span>
+              )}
             </p>
           )}
           {status === "error" && (

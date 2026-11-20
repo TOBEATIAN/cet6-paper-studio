@@ -69,6 +69,30 @@ export function detectExamDate(text: string): string {
   return match ? `${match[1]}-${String(Number(match[2])).padStart(2, "0")}` : "";
 }
 
+export function assignListeningAudioPaths(
+  setLabels: readonly string[],
+  audioPaths: readonly string[],
+): string[] {
+  if (setLabels.length === 0) return [];
+  if (audioPaths.length === 0) return setLabels.map(() => "");
+  if (audioPaths.length === 1) return setLabels.map(() => audioPaths[0]);
+
+  const bySetNumber = new Map<number, string>();
+  for (const path of audioPaths) {
+    const setNumber = audioSetNumber(path);
+    if (setNumber != null && !bySetNumber.has(setNumber)) {
+      bySetNumber.set(setNumber, path);
+    }
+  }
+  if (bySetNumber.size > 0) {
+    return setLabels.map((label) => {
+      const setNumber = setLabelNumber(label);
+      return (setNumber != null ? bySetNumber.get(setNumber) : "") ?? "";
+    });
+  }
+  return setLabels.map((_, index) => audioPaths[index] ?? "");
+}
+
 function rangesFromStarts(
   starts: Array<{ setLabel: string; pageStart: number }>,
   finalPage: number,
@@ -93,4 +117,24 @@ function normalizeSetNumber(value: string): string {
 
 function numberLabel(value: number): string {
   return ["一", "二", "三", "四", "五"][value - 1] ?? String(value);
+}
+
+function audioSetNumber(path: string): number | null {
+  const name = path.split(/[\\/]/).pop() ?? path;
+  const labelled = name.match(/第\s*([一二三123])\s*套/);
+  if (labelled) return normalizedSetNumber(labelled[1]);
+  const numbered = name.match(/(?:set|audio|听力|音频)\s*[-_（(]?\s*([123一二三])(?:\D|$)/i);
+  return numbered ? normalizedSetNumber(numbered[1]) : null;
+}
+
+function setLabelNumber(label: string): number | null {
+  const match = label.match(/第\s*([一二三123])\s*套/);
+  return match ? normalizedSetNumber(match[1]) : null;
+}
+
+function normalizedSetNumber(value: string): number | null {
+  if (value === "1" || value === "一") return 1;
+  if (value === "2" || value === "二") return 2;
+  if (value === "3" || value === "三") return 3;
+  return null;
 }

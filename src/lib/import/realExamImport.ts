@@ -301,14 +301,6 @@ export function importedDraftIssues(draft: ImportedPaperDraft): string[] {
   });
   const issues: string[] = [];
   if (byStage.size === 0) return ["No CET-6 sections were detected."];
-  if (draft.mode === "full") {
-    const missing = (Object.keys(CET6_STAGE_SPECS) as Cet6ContentStage[]).filter(
-      (stage) => !byStage.has(stage),
-    );
-    if (missing.length > 0) {
-      issues.push(`Complete paper is missing: ${missing.join(", ")}`);
-    }
-  }
   for (const [stage, blocks] of byStage) {
     const spec = CET6_STAGE_SPECS[stage];
     const expected = spec.groups.reduce(
@@ -348,7 +340,9 @@ export function answerTableForDraft(
         groupId: block.groupId,
         sourceQuestionNumber: question.sourceQuestionNumber,
         answerLetter: question.answerLetter?.toUpperCase(),
-        status: question.answerLetter ? "provided" : "missing",
+        status:
+          question.answerStatus ??
+          (question.answerLetter ? "provided" : "missing"),
         sources: [],
       });
     }

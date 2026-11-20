@@ -15,7 +15,7 @@ export const AnswerBankEntrySchema = z.object({
   stage: Cet6ContentStageSchema,
   groupId: z.string().default(""),
   sourceQuestionNumber: z.number().int().positive(),
-  answerLetter: z.string().regex(/^[A-D]$/i),
+  answerLetter: z.string().regex(/^[A-O]$/i),
   status: z.enum([
     "provided",
     "bank",

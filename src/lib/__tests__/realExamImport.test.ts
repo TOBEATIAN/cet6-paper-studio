@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyAnswerRows,
   answerTableForDraft,
+  importedDraftIssues,
   importedDraftToPaper,
   mergeAnswerRows,
   mergeImportedPages,
@@ -245,5 +246,25 @@ describe("real-exam import helpers", () => {
     ]);
     expect(next.blocks[0].questions[0].answerLetter).toBe("D");
     expect(next.blocks[0].questions[0].answerStatus).toBe("manual");
+  });
+
+  it("accepts an official full set that intentionally omits listening", () => {
+    const draft = ImportedPaperDraftSchema.parse({
+      mode: "full",
+      setLabel: "第三套",
+      blocks: [
+        {
+          groupId: "writing",
+          stage: "writing",
+          questions: [{ content: "Writing prompt" }],
+        },
+        {
+          groupId: "translation",
+          stage: "translation",
+          questions: [{ content: "Translation prompt" }],
+        },
+      ],
+    });
+    expect(importedDraftIssues(draft)).toEqual([]);
   });
 });

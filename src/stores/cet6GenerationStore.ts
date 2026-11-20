@@ -85,8 +85,8 @@ const DEFAULT_STAGE_DURATION_MS: Record<Cet6PipelinePhase, number> = {
   "listening-b": 90_000,
   "listening-c": 150_000,
   "reading-a": 60_000,
-  "reading-b": 180_000,
-  "reading-c": 300_000,
+  "reading-b": 240_000,
+  "reading-c": 720_000,
   translation: 60_000,
 };
 
@@ -1066,8 +1066,8 @@ async function generateReadingCStage(
     `${paperId}\n${blueprint.title}\nreading-c`,
     history,
   );
-  const passages: string[] = [];
-  for (const passagePlan of plan.passages) {
+  const passages = await Promise.all(
+    plan.passages.map(async (passagePlan) => {
     let correction: string | undefined;
     let passageRepairSource: string | undefined;
     let passage: string | null = null;
@@ -1138,8 +1138,9 @@ async function generateReadingCStage(
       });
     }
     if (!passage) throw new GenerationValidationError(lastError);
-    passages.push(passage);
-  }
+    return passage;
+  }),
+  );
 
   let questionCorrection: string | undefined;
   let questionRepairSource: string | undefined;
@@ -1150,9 +1151,8 @@ async function generateReadingCStage(
     const attemptReplies: string[] = [];
     const attemptStartedAt = new Date().toISOString();
     const attemptStartedMs = Date.now();
-    let parseFailed = false;
-    for (let index = 0; index < plan.passages.length; index += 1) {
-      const passagePlan = plan.passages[index];
+    const generatedGroups = await Promise.all(
+      plan.passages.map(async (passagePlan, index) => {
       const baseMessages = buildCet6ReadingCQuestionsPrompt(
         blueprint,
         passagePlan,
@@ -1165,7 +1165,6 @@ async function generateReadingCStage(
             buildCet6RepairMessage(questionRepairSource, lastError),
           ]
         : baseMessages;
-      attemptMessages.push(...messages);
       const startedAt = new Date().toISOString();
       const startedMs = Date.now();
       let reply: string;
@@ -1194,7 +1193,6 @@ async function generateReadingCStage(
         });
         throw error;
       }
-      attemptReplies.push(reply);
       const parsed = parseCet6ReadingCQuestions(
         reply,
         passages[index],
@@ -1204,11 +1202,23 @@ async function generateReadingCStage(
         passagePlan.answerIndexes,
         passagePlan.source,
       );
-      if (!parsed.ok) {
-        lastError = parsed.error;
-        questionCorrection = parsed.error;
-        questionRepairSource = reply;
-        parseFailed = true;
+      return {
+        index,
+        messages,
+        reply,
+        startedAt,
+        startedMs,
+        parsed,
+      };
+    }),
+    );
+    for (const generated of generatedGroups) {
+      attemptMessages.push(...generated.messages);
+      attemptReplies.push(generated.reply);
+      if (!generated.parsed.ok) {
+        lastError = generated.parsed.error;
+        questionCorrection = generated.parsed.error;
+        questionRepairSource = generated.reply;
         await recordGenerationDiagnostic({
           dataDir,
           paperId,
@@ -1217,17 +1227,17 @@ async function generateReadingCStage(
           attemptLimit: MAX_HEAVY_STAGE_ATTEMPTS,
           status: "validation_failed",
           provider: { baseUrl: provider.baseUrl, model: provider.model },
-          messages,
-          startedAt: attemptStartedAt,
-          startedMs: attemptStartedMs,
-          error: parsed.error,
-          rawReply: reply,
+          messages: generated.messages,
+          startedAt: generated.startedAt,
+          startedMs: generated.startedMs,
+          error: generated.parsed.error,
+          rawReply: generated.reply,
         });
-        break;
+        continue;
       }
-      questions.push(...parsed.value);
+      questions.push(...generated.parsed.value);
     }
-    if (parseFailed) continue;
+    if (generatedGroups.some((generated) => !generated.parsed.ok)) continue;
 
     const structural = validateCet6StageQuestions("reading-c", questions);
     if (structural.length > 0) {
@@ -1302,6 +1312,54 @@ async function generateReadingCStage(
     lastError = quality.errors
       .map((check) => `${check.label}: ${check.detail ?? "未通过"}`)
       .join("\n");
+    const qualityRepair = await repairReadingCQualityGroups(
+      questions,
+      blueprint,
+      plan,
+      passages,
+      lastError,
+      provider,
+      apiKey,
+      attemptMessages,
+      attemptReplies,
+    );
+    if (qualityRepair.ok) {
+      questions.splice(0, questions.length, ...qualityRepair.questions);
+      const repairedRiskResolution = await resolveReadingCRisks(
+        questions,
+        plan,
+        passages,
+        provider,
+        apiKey,
+        dataDir,
+        paperId,
+        attempt,
+      );
+      if (repairedRiskResolution.ok) {
+        questions.splice(
+          0,
+          questions.length,
+          ...repairedRiskResolution.questions,
+        );
+        const repairedStructural = validateCet6StageQuestions(
+          "reading-c",
+          questions,
+        );
+        if (repairedStructural.length === 0) {
+          const repairedQuality = auditCet6Stage("reading-c", questions);
+          if (repairedQuality.passed) return questions;
+          lastError = repairedQuality.errors
+            .map((check) => `${check.label}: ${check.detail ?? "未通过"}`)
+            .join("\n");
+        } else {
+          lastError = repairedStructural.join("\n");
+        }
+      } else {
+        lastError = repairedRiskResolution.error;
+      }
+    } else {
+      lastError = qualityRepair.error;
+    }
     questionCorrection = lastError;
     questionRepairSource = attemptReplies.join(
       "\n\n--- next passage reply ---\n\n",
@@ -1322,6 +1380,100 @@ async function generateReadingCStage(
     });
   }
   throw new GenerationValidationError(lastError);
+}
+
+async function repairReadingCQualityGroups(
+  initialQuestions: readonly Question[],
+  blueprint: Cet6Blueprint,
+  plan: ReadingCPlan,
+  passages: readonly string[],
+  qualityError: string,
+  provider: {
+    baseUrl: string;
+    model: string;
+    temperature?: number;
+    maxTokens?: number;
+  },
+  apiKey: string,
+  messages: { role: string; content: string }[],
+  replies: string[],
+): Promise<
+  { ok: true; questions: Question[] } | { ok: false; error: string }
+> {
+  const groupIndexes = readingCGroupIndexesForError(qualityError);
+  if (groupIndexes.length === 0) return { ok: false, error: qualityError };
+  const repairs = await Promise.all(
+    groupIndexes.map(async (index) => {
+      const passagePlan = plan.passages[index];
+      const repairMessages = buildCet6ReadingCQuestionsPrompt(
+        blueprint,
+        passagePlan,
+        passages[index],
+        qualityError,
+      );
+      messages.push(...repairMessages);
+      const reply = await storage.completeChat({
+        baseUrl: provider.baseUrl,
+        apiKey,
+        model: provider.model,
+        messages: repairMessages,
+        temperature: provider.temperature,
+        maxTokens: stageMaxTokens("reading-c", provider.maxTokens),
+      });
+      replies.push(reply);
+      return {
+        index,
+        parsed: parseCet6ReadingCQuestions(
+          reply,
+          passages[index],
+          passagePlan.index,
+          passagePlan.sourceParagraphs,
+          passagePlan.questionKinds,
+          passagePlan.answerIndexes,
+          passagePlan.source,
+        ),
+      };
+    }),
+  );
+  const errors = repairs.flatMap((repair) =>
+    repair.parsed.ok ? [] : [`Q${repair.index === 0 ? "46-50" : "51-55"} repair failed:\n${repair.parsed.error}`],
+  );
+  if (errors.length > 0) {
+    return { ok: false, error: errors.join("\n\n") };
+  }
+  const replacements = new Map(
+    repairs.flatMap((repair) =>
+      repair.parsed.ok
+        ? [[repair.index, repair.parsed.value] as const]
+        : [],
+    ),
+  );
+  const questions = [
+    ...initialQuestions.filter((question) => {
+      const number = question.examSection?.questionNumber ?? 0;
+      if (number >= 46 && number <= 50) return !replacements.has(0);
+      if (number >= 51 && number <= 55) return !replacements.has(1);
+      return true;
+    }),
+    ...[...replacements.values()].flat(),
+  ].sort(
+    (left, right) =>
+      (left.examSection?.questionNumber ?? 0) -
+      (right.examSection?.questionNumber ?? 0),
+  );
+  return { ok: true, questions };
+}
+
+function readingCGroupIndexesForError(error: string): number[] {
+  const indexes = new Set<number>();
+  for (const match of error.matchAll(/\bQ(\d{1,2})\b/g)) {
+    const number = Number(match[1]);
+    if (number >= 46 && number <= 50) indexes.add(0);
+    if (number >= 51 && number <= 55) indexes.add(1);
+  }
+  if (indexes.size > 0) return [...indexes];
+  if (/两篇|reading-c:two-passages/i.test(error)) return [0, 1];
+  return [];
 }
 
 interface ReadingCRiskResolutionSuccess {
@@ -1372,12 +1524,12 @@ async function resolveReadingCRisks(
     const unresolvedRisks: ReturnType<typeof collectReadingCRisks> = [];
     const invalidReviews: string[] = [];
     let reviewFailed = false;
-    for (const group of groups) {
+    const reviewResults = await Promise.all(
+      groups.map(async (group) => {
       const reviewMessages = buildReadingCRiskReviewPrompt(group);
       messages.push(...reviewMessages);
-      let reviewReply: string;
       try {
-        reviewReply = await storage.completeChat({
+        const reviewReply = await storage.completeChat({
           baseUrl: provider.baseUrl,
           apiKey,
           model: provider.model,
@@ -1385,22 +1537,36 @@ async function resolveReadingCRisks(
           temperature: 0.1,
           maxTokens: 32_768,
         });
+        return {
+          group,
+          reply: reviewReply,
+          parsed: parseReadingCRiskReviewResponse(reviewReply),
+        };
       } catch (error) {
-        lastError = `Reading C risk review failed: ${errorText(error)}`;
+        return {
+          group,
+          error: `Reading C risk review failed: ${errorText(error)}`,
+        };
+      }
+    }),
+    );
+    for (const result of reviewResults) {
+      if ("error" in result) {
+        lastError =
+          result.error ?? "Reading C risk review failed without details.";
         reviewFailed = true;
         break;
       }
-      replies.push(reviewReply);
-      const parsed = parseReadingCRiskReviewResponse(reviewReply);
-      if (!parsed.ok) {
-        lastError = `Reading C risk review JSON failed:\n${parsed.error}`;
+      replies.push(result.reply);
+      if (!result.parsed.ok) {
+        lastError = `Reading C risk review JSON failed:\n${result.parsed.error}`;
         reviewFailed = true;
         break;
       }
       const applied = applyReadingCRiskDecisions(
         questions,
-        group,
-        parsed.reviews,
+        result.group,
+        result.parsed.reviews,
       );
       questions = applied.questions;
       unresolvedRisks.push(...applied.unresolved);

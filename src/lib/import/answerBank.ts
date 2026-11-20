@@ -26,6 +26,12 @@ export function lookupBankAnswers(
 ): AnswerSearchResult {
   const base = answerTableForDraft(draft);
   const rows = base.rows.map((row) => {
+    if (
+      row.answerLetter &&
+      (row.status === "official" || row.status === "manual")
+    ) {
+      return row;
+    }
     const block = draft.blocks.find(
       (candidate) =>
         candidate.stage === row.stage && candidate.groupId === row.groupId,
