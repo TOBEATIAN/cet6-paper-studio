@@ -63,6 +63,7 @@ function questionsOfKind(paper: ExamPaper, kind: string): Question[] {
 export function auditCet6Stage(
   stage: Cet6ContentStage,
   questions: readonly Question[],
+  options: { readingCSinglePassage?: boolean } = {},
 ): Cet6QualityReport {
   const checks: QualityCheck[] = [];
   const add = (
@@ -80,11 +81,15 @@ export function auditCet6Stage(
       question.type === "single-choice",
   );
   const passages = groupPassages(questions);
+  const expected =
+    stage === "reading-c" && options.readingCSinglePassage
+      ? 5
+      : expectedCount(stage);
 
   add(
     `${stage}:count`,
     `${spec.labelZh}题目数量`,
-    questions.length === expectedCount(stage),
+    questions.length === expected,
     `实际 ${questions.length}`,
   );
   add(
@@ -99,7 +104,14 @@ export function auditCet6Stage(
   if (stage === "writing") auditWriting(questions, add);
   if (stage === "reading-a") auditReadingA(questions, passages, add);
   if (stage === "reading-b") auditReadingB(questions, passages, add);
-  if (stage === "reading-c") auditReadingC(questions, passages, add);
+  if (stage === "reading-c") {
+    auditReadingC(
+      questions,
+      passages,
+      add,
+      Boolean(options.readingCSinglePassage),
+    );
+  }
   if (stage === "translation") auditTranslation(questions, add);
 
   return reportFromChecks(checks, emptyMetrics());
@@ -498,6 +510,39 @@ function explanationIssues(
   return issues;
 }
 
+function readingCDistractorAnalysisIssues(
+  question: Extract<Question, { type: "single-choice" }>,
+): string[] {
+  const explanation = question.explanation ?? "";
+  if (!hasChinese(explanation)) return ["缺中文解析"];
+  const markers = [
+    ...explanation.matchAll(/\b([A-D])\s*[).、）]/g),
+  ].map((match) => ({
+    letter: match[1] ?? "",
+    index: match.index ?? 0,
+  }));
+  const issues: string[] = [];
+  for (const [index, letter] of ["A", "B", "C", "D"].entries()) {
+    if (index === question.correctAnswer) continue;
+    const marker = markers.find((item) => item.letter === letter);
+    if (!marker) {
+      issues.push(`${letter} 未作为独立项分析`);
+      continue;
+    }
+    const next = markers.find((item) => item.index > marker.index);
+    const segment = explanation.slice(marker.index, next?.index);
+    if (!hasChinese(segment)) {
+      issues.push(`${letter} 分析缺少中文说明`);
+    }
+    if (
+      !CET6_DISTRACTOR_ERROR_TYPES.some((type) => segment.includes(type))
+    ) {
+      issues.push(`${letter} 未在本项内写明错因类型`);
+    }
+  }
+  return issues;
+}
+
 function auditWriting(questions: readonly Question[], add: AddCheck) {
   const writing = questions[0];
   if (writing?.type !== "essay") return;
@@ -880,6 +925,7 @@ function auditReadingC(
   questions: readonly Question[],
   passages: readonly PassageGroup[],
   add: AddCheck,
+  singlePassage: boolean,
 ) {
   const choices = questions.filter(
     (question): question is Extract<Question, { type: "single-choice" }> =>
@@ -908,8 +954,10 @@ function auditReadingC(
   ).length;
   add(
     "reading-c:long-option-mix",
-    "四选项均值≥9词的长句型题至少 4/10",
-    longOptionQuestions >= 4,
+    singlePassage
+      ? "四选项均值≥9词的长句型题至少 2/5"
+      : "四选项均值≥9词的长句型题至少 4/10",
+    longOptionQuestions >= (singlePassage ? 2 : 4),
     String(longOptionQuestions),
   );
   const uniqueCorrectLongest = choices.filter((question) => {
@@ -922,12 +970,14 @@ function auditReadingC(
   });
   add(
     "reading-c:option-length",
-    "四选项均≥3词、每题长度差≤6词、正确项最长≤4/10",
+    singlePassage
+      ? "四选项均≥3词、每题长度差≤6词、正确项最长≤2/5"
+      : "四选项均≥3词、每题长度差≤6词、正确项最长≤4/10",
     choices.every((question) =>
       question.options.every((option) => wordCount(option) >= 3),
     ) &&
       optionStats.maxSpread <= 6 &&
-      optionStats.correctLongest <= 4,
+      optionStats.correctLongest <= (singlePassage ? 2 : 4),
     `正确项最长 ${optionStats.correctLongest}；最大差 ${optionStats.maxSpread}；${uniqueCorrectLongest
       .map((question) => `Q${question.examSection?.questionNumber ?? "?"}`)
       .join(",") || "0"}`,
@@ -961,19 +1011,26 @@ function auditReadingC(
       ) / Math.max(1, choices.length)
     ).toFixed(1),
   );
-  add("reading-c:two-passages", "仔细阅读为两篇且每篇 5 题", passages.length === 2 && passages.every((group) => group.questions.length === 5));
+  add(
+    "reading-c:two-passages",
+    singlePassage ? "仔细阅读单篇训练含 5 题" : "仔细阅读为两篇且每篇 5 题",
+    singlePassage
+      ? passages.length === 1 && passages[0]?.questions.length === 5
+      : passages.length === 2 &&
+          passages.every((group) => group.questions.length === 5),
+  );
   add(
     "reading-c:length",
-    "两篇正文各 430-450 词",
+    singlePassage ? "训练正文 430-450 词" : "两篇正文各 430-450 词",
     passages.every((group) => wordCount(group.passage) >= 430 && wordCount(group.passage) <= 450),
     passages.map((group) => wordCount(group.passage)).join("/"),
   );
   const stats = passages.map((group) => paragraphStats(group.passage));
   add(
     "reading-c:paragraphs",
-    "两篇各 6-12 段且段数不同",
+    singlePassage ? "正文 6-12 段" : "两篇各 6-12 段且段数不同",
     stats.every((item) => item.count >= 6 && item.count <= 12) &&
-      stats[0].count !== stats[1].count,
+      (singlePassage || stats[0].count !== stats[1].count),
     stats.map((item) => item.count).join("/"),
   );
   add(
@@ -1010,25 +1067,32 @@ function auditReadingC(
   );
   add(
     "reading-c:long-words",
-    "两篇 ≥8 字母词占 20%-27.6%",
+    singlePassage ? "正文 ≥8 字母词占 20%-27.6%" : "两篇 ≥8 字母词占 20%-27.6%",
     passages.every((group) => longWordPercent(group.passage) >= 20 && longWordPercent(group.passage) <= 27.6),
     passages.map((group) => longWordPercent(group.passage).toFixed(1)).join("/"),
   );
   add(
     "reading-c:specifics",
-    "两篇具体信息 8-42 处且至少一处阿拉伯数字",
+    singlePassage
+      ? "正文具体信息 8-42 处且至少一处阿拉伯数字"
+      : "两篇具体信息 8-42 处且至少一处阿拉伯数字",
     passages.every((group) => specificInfoCount(group.passage) >= 8 && specificInfoCount(group.passage) <= 42) &&
       passages.every((group) => countArabicFigures(group.passage) >= 1),
   );
   const questionKinds = choices.map((question) => question.examSection?.questionKind ?? "");
   add(
     "reading-c:question-kinds",
-    "细节 6-8、推断 1-3、态度 0-1，其他题型 0",
+    singlePassage
+      ? "单篇训练：细节 3-4、推断 1-2、态度 0-1"
+      : "细节 6-8、推断 1-3、态度 0-1，其他题型 0",
     questionKinds.every((kind) => ["detail", "inference", "attitude"].includes(kind)) &&
-      questionKinds.filter((kind) => kind === "detail").length >= 6 &&
-      questionKinds.filter((kind) => kind === "detail").length <= 8 &&
+    questionKinds.filter((kind) => kind === "detail").length >=
+      (singlePassage ? 3 : 6) &&
+      questionKinds.filter((kind) => kind === "detail").length <=
+        (singlePassage ? 4 : 8) &&
       questionKinds.filter((kind) => kind === "inference").length >= 1 &&
-      questionKinds.filter((kind) => kind === "inference").length <= 3 &&
+      questionKinds.filter((kind) => kind === "inference").length <=
+        (singlePassage ? 2 : 3) &&
       questionKinds.filter((kind) => kind === "attitude").length <= 1,
     JSON.stringify(countBy(questionKinds)),
   );
@@ -1078,16 +1142,21 @@ function auditReadingC(
   add(
     "reading-c:distractor-anchors",
     "依据段及相邻段内有具体锚点的干扰项，每题至少 2 个（例外≤4/10）",
-    weakAnchors.length <= 4,
+    weakAnchors.length <= (singlePassage ? 2 : 4),
     weakAnchors
       .map((question) => `Q${question.examSection?.questionNumber ?? "?"}`)
       .join(",") || "0",
   );
-  const sourceTypes = passages.map((group) => group.questions[0]?.examSection?.source?.type ?? "");
+  const sourceTypes = passages.map(
+    (group) => group.questions[0]?.examSection?.source?.type ?? "",
+  );
   add(
     "reading-c:sources",
-    "两篇均记录原创素材来源类型且类型不同",
-    sourceTypes.every(Boolean) && sourceTypes[0] !== sourceTypes[1],
+    singlePassage
+      ? "正文记录原创素材来源类型"
+      : "两篇均记录原创素材来源类型且类型不同",
+    sourceTypes.every(Boolean) &&
+      (singlePassage || sourceTypes[0] !== sourceTypes[1]),
     sourceTypes.join("/"),
   );
   if (passages.length === 2) {
@@ -1202,19 +1271,17 @@ function auditReadingC(
   add(
     "reading-c:distractor-analysis",
     "中文解析逐项排除三个干扰项并写明错因类型",
-    choices.every((question) => {
-      const explanation = question.explanation ?? "";
-      const wrongLetters = ["A", "B", "C", "D"].filter(
-        (_, index) => index !== question.correctAnswer,
-      );
-      return (
-        hasChinese(explanation) &&
-        wrongLetters.every((letter) =>
-          new RegExp(`${letter}\\s*[).、]`).test(explanation),
-        ) &&
-        CET6_DISTRACTOR_ERROR_TYPES.some((type) => explanation.includes(type))
-      );
-    }),
+    choices.every(
+      (question) => readingCDistractorAnalysisIssues(question).length === 0,
+    ),
+    choices
+      .flatMap((question) =>
+        readingCDistractorAnalysisIssues(question).map(
+          (issue) =>
+            `Q${question.examSection?.questionNumber ?? "?"}: ${issue}`,
+        ),
+      )
+      .join("；"),
   );
   const quotes = quoteCount(passages.map((group) => group.passage).join("\n"));
   add("reading-c:quotes", "两篇合计至少一处引号", quotes.total >= 1);

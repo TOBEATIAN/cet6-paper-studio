@@ -4,6 +4,7 @@ import {
   buildCet6Paper,
   parseCet6ReadingCQuestion,
   parseCet6ReadingCQuestions,
+  validateCet6StageQuestions,
 } from "../cet/generate";
 import type { Question } from "../types/exam";
 import { SpecialtyStageTopicsSchema } from "../types/cet";
@@ -23,6 +24,24 @@ describe("specialty generation", () => {
     expect(prompt).toContain("Develop only these reading forms: reading-a");
     expect(prompt).toContain("Set writing to Not selected");
     expect(prompt).toContain("- listening-b: 校园科技");
+  });
+
+  it("builds a single-article Reading C specialty blueprint", () => {
+    const prompt = buildCet6SpecialtyBlueprintPrompt(
+      ["reading-c"],
+      {
+        ...SpecialtyStageTopicsSchema.parse({}),
+        "reading-c": {
+          first: "每日进步1%",
+          second: "Not selected",
+        },
+      },
+    )
+      .map((message) => message.content)
+      .join("\n");
+    expect(prompt).toContain("single close-reading article focus");
+    expect(prompt).toContain("Specialty Reading C contains one article and Q46-50 only");
+    expect(prompt).not.toContain("Develop two distinct Reading C");
   });
 
   it("preserves section numbering and score for a one-section paper", () => {
@@ -104,6 +123,11 @@ describe("specialty generation", () => {
     ]);
     expect(choices[0].options[1]).toContain("Correct option 1");
     expect(choices[0].explanation).toContain("故选 B");
+    expect(
+      validateCet6StageQuestions("reading-c", parsed.value, {
+        readingCSinglePassage: true,
+      }),
+    ).toEqual([]);
   });
 
   it("parses one repaired Reading C question without rewriting its group", () => {

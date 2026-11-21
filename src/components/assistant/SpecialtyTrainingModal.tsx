@@ -140,46 +140,28 @@ export function SpecialtyTrainingModal({
             <div key={stage} className="rounded-md border border-border p-3">
               <p className="text-sm font-medium">{t(stageLabelKey(stage))}</p>
               {stage === "reading-c" ? (
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  <label className="block text-xs text-muted-foreground">
-                    {t("specialty.passageOneTopic")}
-                    <input
-                      value={stageTopics["reading-c"].first}
-                      onChange={(event) => {
-                        const topic = event.target.value;
-                        setStageTopics((current) => ({
-                          ...current,
-                          "reading-c": {
-                            ...current["reading-c"],
-                            first: topic,
-                          },
-                        }));
-                      }}
-                      placeholder={t("specialty.randomIfEmpty")}
-                      className={`${inputCls} mt-1 w-full`}
-                      maxLength={120}
-                    />
-                  </label>
-                  <label className="block text-xs text-muted-foreground">
-                    {t("specialty.passageTwoTopic")}
-                    <input
-                      value={stageTopics["reading-c"].second}
-                      onChange={(event) => {
-                        const topic = event.target.value;
-                        setStageTopics((current) => ({
-                          ...current,
-                          "reading-c": {
-                            ...current["reading-c"],
-                            second: topic,
-                          },
-                        }));
-                      }}
-                      placeholder={t("specialty.randomIfEmpty")}
-                      className={`${inputCls} mt-1 w-full`}
-                      maxLength={120}
-                    />
-                  </label>
-                </div>
+                <label className="mt-2 block text-xs text-muted-foreground">
+                  {t("specialty.readingSingleTopic")}
+                  <input
+                    value={stageTopics["reading-c"].first}
+                    onChange={(event) => {
+                      const topic = event.target.value;
+                      setStageTopics((current) => ({
+                        ...current,
+                        "reading-c": {
+                          first: topic,
+                          second: "Not selected",
+                        },
+                      }));
+                    }}
+                    placeholder={t("specialty.randomIfEmpty")}
+                    className={`${inputCls} mt-1 w-full`}
+                    maxLength={120}
+                  />
+                  <span className="mt-1 block text-[11px] text-muted-foreground">
+                    {t("specialty.readingSingleHint")}
+                  </span>
+                </label>
               ) : (
                 <input
                   value={stageTopics[stage] as string}

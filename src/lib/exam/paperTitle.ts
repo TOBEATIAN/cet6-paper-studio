@@ -37,7 +37,8 @@ export function specialtyTopicSummary(
             topics["reading-c"].first.trim()
               ? `阅读C一：${topics["reading-c"].first.trim()}`
               : "",
-            topics["reading-c"].second.trim()
+            topics["reading-c"].second.trim() &&
+            !/^not selected$/i.test(topics["reading-c"].second.trim())
               ? `阅读C二：${topics["reading-c"].second.trim()}`
               : "",
           ]

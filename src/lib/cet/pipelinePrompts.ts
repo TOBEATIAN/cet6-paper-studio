@@ -74,7 +74,7 @@ export function buildCet6SpecialtyBlueprintPrompt(
   const reading = selectedStages.filter((stage) => stage.startsWith("reading"));
   const topicLines = selectedStages.map((stage) =>
     stage === "reading-c"
-      ? `- reading-c: Passage One focus: ${stageTopics["reading-c"].first.trim() || "choose independently"}; Passage Two focus: ${stageTopics["reading-c"].second.trim() || "choose independently, different from Passage One"}`
+      ? `- reading-c: single close-reading article focus: ${stageTopics["reading-c"].first.trim() || "choose independently"}; do not develop a second article`
       : `- ${stage}: ${stageTopics[stage].trim() || "choose independently"}`,
   );
   return [
@@ -99,10 +99,10 @@ Rules:
 - ${listening.length > 0 ? `Develop only these listening cases: ${listening.join(", ")}.` : "Set listening and every listeningCases field to Not selected."}
 - ${reading.length > 0 ? `Develop only these reading forms: ${reading.join(", ")}.` : "Set reading, readingB and readingC topics to Not selected."}
 - ${selected.has("reading-b") ? "Develop a Reading B matching-passage topic." : "Set readingB to Not selected."}
-- ${selected.has("reading-c") ? "Develop two distinct Reading C close-reading subjects." : "Mark both readingC subjects as Not selected."}
+- ${selected.has("reading-c") ? "Develop exactly one Reading C close-reading subject and set readingC.second to Not selected." : "Mark both readingC subjects as Not selected."}
 - ${selected.has("translation") ? "Develop one translation topic." : "Set translation to Not selected."}
 - Blank directions must be chosen independently, not copied from another selected stage.
-- Reading C must use two distinct subjects even when both directions are blank.
+- Specialty Reading C contains one article and Q46-50 only.
 - Keep all selected concrete examples mutually distinct and commercially original.`,
     },
   ];
@@ -491,6 +491,59 @@ Rules:
 
 Return exactly:
 {"questions":[{"id":"...","type":"single-choice","content":"...","options":["...","...","...","..."],"correctAnswer":0,"explanation":"...","score":14.2,"examSection":{"kind":"cet-reading-c","groupId":"passage-${passagePlan.index + 1}","title":"Reading Section C · Passage ${passagePlan.index + 1}","questionNumber":${firstNumber}}}]}`,
+    },
+  ];
+}
+
+export function buildCet6ReadingCSingleRiskRepairPrompt(
+  passagePlan: ReadingCPassagePlan,
+  passage: string,
+  question: Question,
+  questionIndex: number,
+  riskCorrection: string,
+): ApiMessage[] {
+  const questionNumber =
+    (passagePlan.index === 0 ? 46 : 51) + questionIndex;
+  const answerIndex = passagePlan.answerIndexes[questionIndex];
+  const answerLetter = String.fromCharCode(65 + answerIndex);
+  return [
+    { role: "system", content: SYSTEM_PROMPT },
+    {
+      role: "user",
+      content: `Repair only Reading Section C question ${questionNumber} after its failed strong-distractor review.
+
+Frozen passage:
+${passage}
+
+Current question:
+${JSON.stringify(question, null, 2)}
+
+Unresolved strong-distractor issues:
+${riskCorrection}
+
+Required result:
+- Return exactly one question object for questionNumber ${questionNumber}.
+- Preserve the question id, stem intent, question kind, evidence paragraph and
+  correct-answer meaning at ${answerLetter} (zero-based index ${answerIndex}).
+- The article is frozen. Do not rewrite, extend or repeat the passage.
+- Change the listed distractor or distractors, and the explanation only. Keep
+  unaffected options unless a wording change is strictly necessary.
+- Remove the measured ambiguity: the strongest distractor must fall below 50%
+  evidence overlap or trail the correct option by at least 15 percentage
+  points. It must not share the correct option's strongest supporting sentence
+  when it repeats at least 60% of that sentence's content words.
+- Give each changed distractor one decisive error: actor, object, time, cause,
+  degree, or scope. Use a locatable passage detail without copying a long run.
+- The correct option must retain at least two meaningful content words from a
+  verbatim passage phrase, but no identical passage run may exceed three words.
+- The Chinese explanation must quote a short English passage phrase. Label it
+  with each wrong item in turn as “A) 中文排除理由，属错因类型。”,
+  “B) …”, “C) …”, “D) …”. Every wrong-item segment must contain Chinese,
+  its own allowed error type, and a concrete reason. End with “故选 ${answerLetter}。”.
+- Do not include examSection.passage; the application reattaches the frozen text.
+
+Return exactly:
+{"questions":[{"id":"unique","type":"single-choice","content":"...","options":["...","...","...","..."],"correctAnswer":${answerIndex},"explanation":"...","score":14.2,"examSection":{"kind":"cet-reading-c","groupId":"passage-${passagePlan.index + 1}","title":"Reading Section C · Passage ${passagePlan.index + 1}","questionNumber":${questionNumber}}}]}`,
     },
   ];
 }

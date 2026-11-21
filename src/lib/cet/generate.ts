@@ -394,9 +394,13 @@ export function parseCet6ReadingCQuestion(
 export function validateCet6StageQuestions(
   stage: Cet6ContentStage,
   questions: readonly Question[],
+  options: { readingCSinglePassage?: boolean } = {},
 ): string[] {
   const spec = CET6_STAGE_SPECS[stage];
-  const expected = expectedQuestionCount(stage);
+  const expected =
+    stage === "reading-c" && options.readingCSinglePassage
+      ? 5
+      : expectedQuestionCount(stage);
   const expectedOptions =
     stage === "reading-a" ? 15 : stage === "reading-b" ? 13 : 4;
   const errors: string[] = [];
@@ -453,7 +457,11 @@ export function validateCet6StageQuestions(
   }
 
   let offset = 0;
-  for (const group of spec.groups) {
+  const groups =
+    stage === "reading-c" && options.readingCSinglePassage
+      ? spec.groups.slice(0, 1)
+      : spec.groups;
+  for (const group of groups) {
     const count = group.questionNumbers.length;
     if (count === 0) continue;
     const groupQuestions = questions.slice(offset, offset + count);
@@ -474,7 +482,11 @@ export function validateCet6StageQuestions(
     offset += count;
   }
 
-  if (stage === "reading-c" && questions.length === 10) {
+  if (
+    stage === "reading-c" &&
+    !options.readingCSinglePassage &&
+    questions.length === 10
+  ) {
     const first = sharedPassage(questions.slice(0, 5));
     const second = sharedPassage(questions.slice(5));
     if (first && second && normalizeText(first) === normalizeText(second)) {

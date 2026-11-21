@@ -5,6 +5,7 @@ import {
   collectReadingCRisks,
   groupReadingCRisksForReview,
   isValidReadingCRiskReview,
+  readingCRiskReviewIssues,
 } from "../cet/readingCRisk";
 import { auditCet6Stage } from "../cet/quality/audit";
 
@@ -125,6 +126,64 @@ describe("Reading C strong-distractor adjudication", () => {
     ).toBe(false);
   });
 
+  it("keeps earlier accepted reviews when a later review batch is applied", () => {
+    const first = riskyQuestion();
+    const second: Question = {
+      ...riskyQuestion(),
+      id: "q47",
+      examSection: {
+        ...riskyQuestion().examSection!,
+        questionNumber: 47,
+      },
+    };
+    const risks = collectReadingCRisks([first, second]);
+    expect(risks).toHaveLength(2);
+    const decisionFor = (risk: (typeof risks)[number]) => ({
+      questionNumber: risk.questionNumber,
+      letter: risk.letter,
+      decision: "keep" as const,
+      errorType: "程度偏移" as const,
+      passageEvidence: "30 percent reduction in missed classes",
+      optionError:
+        "all pupils everywhere changes the measured participating-pupil group",
+      distinguishingReason:
+        "The option changes the participating-pupil scope into every pupil everywhere.",
+    });
+    const firstPass = applyReadingCRiskDecisions(
+      [first, second],
+      [risks[0]],
+      [decisionFor(risks[0])],
+    );
+    const secondPass = applyReadingCRiskDecisions(
+      firstPass.questions,
+      [risks[1]],
+      [decisionFor(risks[1])],
+    );
+    expect(
+      secondPass.questions.find((question) => question.id === "q46")
+        ?.examSection?.readingCRiskReviews,
+    ).toHaveLength(1);
+    expect(
+      secondPass.questions.find((question) => question.id === "q47")
+        ?.examSection?.readingCRiskReviews,
+    ).toHaveLength(1);
+  });
+
+  it("reports why a review was rejected instead of returning a blank reason", () => {
+    const risk = collectReadingCRisks([riskyQuestion()])[0];
+    const issues = readingCRiskReviewIssues(risk, {
+      types: risk.types,
+      option: risk.option,
+      correctOption: risk.correctOption,
+      errorType: "程度偏移",
+      passageEvidence: "invented evidence outside the passage",
+      optionError: "不够准确",
+      distinguishingReason: "不如正确项",
+    });
+    expect(issues).toContain("正文证据不是原文逐字短语，或实词不足两个");
+    expect(issues).toContain("错因或区分理由仍是空泛表述");
+  });
+
   it("accepts named-person inference stems as opinion questions", () => {
     const question = riskyQuestion();
     question.content =
@@ -133,5 +192,42 @@ describe("Reading C strong-distractor adjudication", () => {
       (item) => item.id === "reading-c:named-opinion",
     );
     expect(check?.passed).toBe(true);
+  });
+
+  it("audits one Reading C article as five questions", () => {
+    const base = riskyQuestion();
+    const questions: Question[] = Array.from({ length: 5 }, (_, index) => ({
+      ...base,
+      id: `q${46 + index}`,
+      examSection: {
+        ...base.examSection,
+        kind: "cet-reading-c",
+        groupId: "single-reading-c",
+        questionNumber: 46 + index,
+      },
+    }));
+    const report = auditCet6Stage("reading-c", questions, {
+      readingCSinglePassage: true,
+    });
+    expect(
+      report.checks.find((check) => check.id === "reading-c:count")?.passed,
+    ).toBe(true);
+    expect(
+      report.checks.find((check) => check.id === "reading-c:two-passages")
+        ?.passed,
+    ).toBe(true);
+  });
+
+  it("names the question and missing distractor error type in audit details", () => {
+    const question = riskyQuestion();
+    question.explanation =
+      "原文“30 percent reduction in missed classes”说明范围只限参与调查的学生。A) 与原文范围一致，排除。B) all pupils everywhere 扩大范围，属程度偏移。C) brighter rooms 属无中生有。D) ended every glare 只是无关概括。故选 A。";
+    const check = auditCet6Stage("reading-c", [question], {
+      readingCSinglePassage: true,
+    }).checks.find(
+      (item) => item.id === "reading-c:distractor-analysis",
+    );
+    expect(check?.passed).toBe(false);
+    expect(check?.detail).toContain("Q46: D 未在本项内写明错因类型");
   });
 });

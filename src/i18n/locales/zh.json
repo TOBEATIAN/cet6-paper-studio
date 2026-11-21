@@ -34,6 +34,8 @@
     "focusPlaceholder": "例如：校园科技、环境保护、学习方法",
     "passageOneTopic": "Passage One 主题（可选）",
     "passageTwoTopic": "Passage Two 主题（可选）",
+    "readingSingleTopic": "阅读 C 文章主题（可选）",
+    "readingSingleHint": "每次专项训练只生成 1 篇文章和 Q46-50。",
     "randomIfEmpty": "留空则独立随机选题",
     "topicForStage": "{{stage}}主题",
     "start": "开始生成专项卷",

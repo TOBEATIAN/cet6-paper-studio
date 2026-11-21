@@ -34,6 +34,8 @@
     "focusPlaceholder": "For example: campus technology, the environment, study methods",
     "passageOneTopic": "Passage One topic (optional)",
     "passageTwoTopic": "Passage Two topic (optional)",
+    "readingSingleTopic": "Reading C article topic (optional)",
+    "readingSingleHint": "Each specialty run generates one article and Q46-50.",
     "randomIfEmpty": "Leave empty for an independent random topic",
     "topicForStage": "{{stage}} topic",
     "start": "Generate specialty paper",

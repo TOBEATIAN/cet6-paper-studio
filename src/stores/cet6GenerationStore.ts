@@ -37,9 +37,11 @@ import {
 import {
   applyReadingCRiskDecisions,
   buildReadingCRiskReviewPrompt,
+  carryForwardReadingCRiskReviews,
   collectReadingCRisks,
   formatReadingCRisksForRepair,
   groupReadingCRisksForReview,
+  isValidReadingCRiskReview,
   parseReadingCRiskReviewResponse,
   unresolvedReadingCRiskText,
 } from "../lib/cet/readingCRisk";
@@ -65,6 +67,7 @@ import {
   buildCet6ReadingCPassagePrompt,
   buildCet6ReadingCGroupRepairPrompt,
   buildCet6ReadingCQuestionsPrompt,
+  buildCet6ReadingCSingleRiskRepairPrompt,
   buildCet6ReadingCSingleQuestionRepairPrompt,
   buildCet6RepairMessage,
   buildCet6StagePrompt,
@@ -183,7 +186,13 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
         ? {
             mode: "specialty",
             selectedStages: [...new Set(requestedScope.selectedStages)],
-            stageTopics: requestedScope.stageTopics,
+            stageTopics: {
+              ...requestedScope.stageTopics,
+              "reading-c": {
+                ...requestedScope.stageTopics["reading-c"],
+                second: "Not selected",
+              },
+            },
             focusTopic: requestedScope.focusTopic.trim(),
           }
         : fullGenerationScope();
@@ -346,6 +355,7 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
                   apiKey,
                   dataDir,
                   paperId,
+                  scope.mode === "specialty",
                   checkpoint.readingCPassages,
                   async (validatedPassages) => {
                     checkpoint = await saveCheckpoint(dataDir, {
@@ -444,12 +454,18 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
         new Date(),
         scope,
       );
+      const readingCSinglePassage =
+        scope.mode === "specialty" && selectedStages.includes("reading-c");
       const errors =
         scope.mode === "specialty"
           ? selectedStages.flatMap((stage) =>
               validateCet6StageQuestions(
                 stage,
                 checkpoint.questionsByStage[stage] ?? [],
+                {
+                  readingCSinglePassage:
+                    readingCSinglePassage && stage === "reading-c",
+                },
               ),
             )
           : validateCet6Paper(paper);
@@ -463,6 +479,10 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
                 auditCet6Stage(
                   stage,
                   checkpoint.questionsByStage[stage] ?? [],
+                  {
+                    readingCSinglePassage:
+                      readingCSinglePassage && stage === "reading-c",
+                  },
                 ),
               ),
             )
@@ -1074,9 +1094,10 @@ async function generateReadingCStage(
   apiKey: string,
   dataDir: string,
   paperId: string,
-  savedPassages?: readonly [string, string],
+  singlePassage: boolean,
+  savedPassages?: readonly string[],
   onPassagesReady?: (
-    passages: [string, string],
+    passages: string[],
   ) => Promise<void>,
 ): Promise<Question[]> {
   const history = await loadRecentReadingCHistory(dataDir, paperId);
@@ -1085,10 +1106,17 @@ async function generateReadingCStage(
     `${paperId}\n${blueprint.title}\nreading-c`,
     history,
   );
+  const passagePlans = singlePassage
+    ? [plan.passages[0]]
+    : [...plan.passages];
+  const reusedSavedPassages =
+    Boolean(savedPassages && savedPassages.length >= passagePlans.length);
   const passages =
-    savedPassages ??
+    reusedSavedPassages && savedPassages
+      ? savedPassages.slice(0, passagePlans.length)
+      :
     (await Promise.all(
-      plan.passages.map(async (passagePlan) => {
+      passagePlans.map(async (passagePlan) => {
     let correction: string | undefined;
     let passageRepairSource: string | undefined;
     let passage: string | null = null;
@@ -1166,8 +1194,8 @@ async function generateReadingCStage(
     return passage;
       }),
     ));
-  if (!savedPassages && onPassagesReady) {
-    await onPassagesReady([passages[0], passages[1]]);
+  if (!reusedSavedPassages && onPassagesReady) {
+    await onPassagesReady([...passages]);
   }
 
   let questionCorrection: string | undefined;
@@ -1188,7 +1216,7 @@ async function generateReadingCStage(
     const attemptStartedMs = Date.now();
     if (!candidateQuestions) {
     const generatedGroups = await Promise.all(
-      plan.passages.map(async (passagePlan, index) => {
+      passagePlans.map(async (passagePlan, index) => {
       const baseMessages = buildCet6ReadingCQuestionsPrompt(
         blueprint,
         passagePlan,
@@ -1276,7 +1304,9 @@ async function generateReadingCStage(
     if (generatedGroups.some((generated) => !generated.parsed.ok)) continue;
     }
 
-    const structural = validateCet6StageQuestions("reading-c", questions);
+    const structural = validateCet6StageQuestions("reading-c", questions, {
+      readingCSinglePassage: singlePassage,
+    });
     if (structural.length > 0) {
       lastError = structural.join("\n");
       questionCorrection = lastError;
@@ -1312,7 +1342,9 @@ async function generateReadingCStage(
       lastError = riskResolution.error;
       questionCorrection = lastError;
       questionRepairSource = undefined;
-      candidateQuestions = questions.map((question) => ({ ...question }));
+      candidateQuestions = riskResolution.questions.map((question) => ({
+        ...question,
+      }));
       await recordGenerationDiagnostic({
         dataDir,
         paperId,
@@ -1333,6 +1365,7 @@ async function generateReadingCStage(
     const postRiskStructural = validateCet6StageQuestions(
       "reading-c",
       questions,
+      { readingCSinglePassage: singlePassage },
     );
     if (postRiskStructural.length > 0) {
       lastError = postRiskStructural.join("\n");
@@ -1341,7 +1374,9 @@ async function generateReadingCStage(
       candidateQuestions = questions.map((question) => ({ ...question }));
       continue;
     }
-    const quality = auditCet6Stage("reading-c", questions);
+    const quality = auditCet6Stage("reading-c", questions, {
+      readingCSinglePassage: singlePassage,
+    });
     if (quality.passed) return questions;
     lastError = quality.errors
       .map((check) => `${check.label}: ${check.detail ?? "未通过"}`)
@@ -1351,6 +1386,7 @@ async function generateReadingCStage(
       plan,
       passages,
       lastError,
+      singlePassage,
       provider,
       apiKey,
       attemptMessages,
@@ -1377,9 +1413,12 @@ async function generateReadingCStage(
         const repairedStructural = validateCet6StageQuestions(
           "reading-c",
           questions,
+          { readingCSinglePassage: singlePassage },
         );
         if (repairedStructural.length === 0) {
-          const repairedQuality = auditCet6Stage("reading-c", questions);
+          const repairedQuality = auditCet6Stage("reading-c", questions, {
+            readingCSinglePassage: singlePassage,
+          });
           if (repairedQuality.passed) return questions;
           lastError = repairedQuality.errors
             .map((check) => `${check.label}: ${check.detail ?? "未通过"}`)
@@ -1419,6 +1458,7 @@ async function repairReadingCQualityGroups(
   plan: ReadingCPlan,
   passages: readonly string[],
   qualityError: string,
+  singlePassage: boolean,
   provider: {
     baseUrl: string;
     model: string;
@@ -1445,7 +1485,9 @@ async function repairReadingCQualityGroups(
       replies,
     );
   }
-  const groupIndexes = readingCGroupIndexesForError(qualityError);
+  const groupIndexes = readingCGroupIndexesForError(qualityError).filter(
+    (index) => !singlePassage || index === 0,
+  );
   if (groupIndexes.length === 0) return { ok: false, error: qualityError };
   const repairs = await Promise.all(
     groupIndexes.map(async (index) => {
@@ -1545,6 +1587,12 @@ async function repairReadingCQualityQuestions(
           error: `Q${questionNumber} is missing from the current candidate.`,
         };
       }
+      if (question.type !== "single-choice") {
+        return {
+          questionNumber,
+          error: `Q${questionNumber} is not a single-choice question.`,
+        };
+      }
       const passageIndex = questionNumber <= 50 ? 0 : 1;
       const questionIndex =
         questionNumber - (passageIndex === 0 ? 46 : 51);
@@ -1580,12 +1628,22 @@ async function repairReadingCQualityQuestions(
         passagePlan.answerIndexes[questionIndex],
         passagePlan.source,
       );
-      return parsed.ok
-        ? { questionNumber, question: parsed.value }
-        : {
-            questionNumber,
-            error: `Q${questionNumber} repair failed:\n${parsed.error}`,
-          };
+      if (!parsed.ok) {
+        return {
+          questionNumber,
+          error: `Q${questionNumber} repair failed:\n${parsed.error}`,
+        };
+      }
+      if (parsed.value.type !== "single-choice") {
+        return {
+          questionNumber,
+          error: `Q${questionNumber} repair returned a non-choice question.`,
+        };
+      }
+      return {
+        questionNumber,
+        question: carryForwardReadingCRiskReviews(question, parsed.value),
+      };
     }),
   );
   const errors = repairs.flatMap((repair) =>
@@ -1690,6 +1748,7 @@ interface ReadingCRiskResolutionSuccess {
 interface ReadingCRiskResolutionFailure {
   ok: false;
   error: string;
+  questions: Question[];
   messages: { role: string; content: string }[];
   startedAt: string;
   startedMs: number;
@@ -1723,7 +1782,12 @@ async function resolveReadingCRisks(
     cycle < MAX_READING_C_RISK_CYCLES;
     cycle += 1
   ) {
-    const risks = collectReadingCRisks(questions);
+    const risks = collectReadingCRisks(questions).filter((risk) => {
+      const question = questions.find((item) => item.id === risk.questionId);
+      return !question?.examSection?.readingCRiskReviews?.some((review) =>
+        isValidReadingCRiskReview(risk, review),
+      );
+    });
     if (risks.length === 0) return { ok: true, questions };
 
     const groups = groupReadingCRisksForReview(risks, 2);
@@ -1785,9 +1849,9 @@ async function resolveReadingCRisks(
       invalidReviews,
     };
 
-    let repair: Awaited<ReturnType<typeof repairReadingCRiskGroups>>;
+    let repair: Awaited<ReturnType<typeof repairReadingCRisks>>;
     try {
-      repair = await repairReadingCRiskGroups(
+      repair = await repairReadingCRisks(
         questions,
         plan,
         passages,
@@ -1815,6 +1879,7 @@ async function resolveReadingCRisks(
       throw error;
     }
     if (!repair.ok) {
+      questions = repair.questions;
       lastError = [
         applied.invalidReviews.length
           ? `Invalid reviews:\n${applied.invalidReviews.join("\n")}`
@@ -1844,6 +1909,7 @@ async function resolveReadingCRisks(
   return {
     ok: false,
     error: lastError,
+    questions,
     messages,
     startedAt,
     startedMs,
@@ -1851,7 +1917,7 @@ async function resolveReadingCRisks(
   };
 }
 
-async function repairReadingCRiskGroups(
+async function repairReadingCRisks(
   questions: readonly Question[],
   plan: ReadingCPlan,
   passages: readonly string[],
@@ -1865,31 +1931,51 @@ async function repairReadingCRiskGroups(
   apiKey: string,
   messages: { role: string; content: string }[],
   replies: string[],
-): Promise<{ ok: true; questions: Question[] } | { ok: false; error: string }> {
-  let current = [...questions];
-  const errors: string[] = [];
-  for (let index = 0; index < plan.passages.length; index += 1) {
-    const firstNumber = index === 0 ? 46 : 51;
-    const lastNumber = firstNumber + 4;
-    const groupRisks = unresolved.filter(
-      (risk) =>
-        risk.questionNumber >= firstNumber && risk.questionNumber <= lastNumber,
-    );
-    if (groupRisks.length === 0) continue;
-    const groupQuestions = current.filter((question) => {
-      const number = question.examSection?.questionNumber ?? 0;
-      return number >= firstNumber && number <= lastNumber;
-    });
-    const repairMessages = buildCet6ReadingCGroupRepairPrompt(
-      plan.passages[index],
-      passages[index],
-      groupQuestions,
-      formatReadingCRisksForRepair(groupRisks),
-    );
-    messages.push(...repairMessages);
-    let reply: string;
-    try {
-      reply = await storage.completeChat({
+): Promise<
+  | { ok: true; questions: Question[] }
+  | { ok: false; error: string; questions: Question[] }
+> {
+  const risksByQuestion = new Map<number, typeof unresolved>();
+  for (const risk of unresolved) {
+    risksByQuestion.set(risk.questionNumber, [
+      ...(risksByQuestion.get(risk.questionNumber) ?? []),
+      risk,
+    ]);
+  }
+  const repairs = await Promise.all(
+    [...risksByQuestion.entries()].map(async ([questionNumber, risks]) => {
+      const question = questions.find(
+        (candidate) =>
+          candidate.examSection?.questionNumber === questionNumber,
+      );
+      if (!question) {
+        return {
+          questionNumber,
+          error: `Q${questionNumber} is missing from the current candidate.`,
+          messages: [],
+          reply: "",
+        };
+      }
+      if (question.type !== "single-choice") {
+        return {
+          questionNumber,
+          error: `Q${questionNumber} is not a single-choice question.`,
+          messages: [],
+          reply: "",
+        };
+      }
+      const passageIndex = questionNumber <= 50 ? 0 : 1;
+      const questionIndex =
+        questionNumber - (passageIndex === 0 ? 46 : 51);
+      const passagePlan = plan.passages[passageIndex];
+      const repairMessages = buildCet6ReadingCSingleRiskRepairPrompt(
+        passagePlan,
+        passages[passageIndex],
+        question,
+        questionIndex,
+        formatReadingCRisksForRepair(risks),
+      );
+      const reply = await storage.completeChat({
         baseUrl: provider.baseUrl,
         apiKey,
         model: provider.model,
@@ -1897,40 +1983,72 @@ async function repairReadingCRiskGroups(
         temperature: 0.1,
         maxTokens: stageMaxTokens("reading-c", provider.maxTokens),
       });
-    } catch (error) {
-      throw error;
-    }
-    replies.push(reply);
-    const parsed = parseCet6ReadingCQuestions(
-      reply,
-      passages[index],
-      plan.passages[index].index,
-      plan.passages[index].sourceParagraphs,
-      plan.passages[index].questionKinds,
-      plan.passages[index].answerIndexes,
-      plan.passages[index].source,
-    );
-    if (!parsed.ok) {
-      errors.push(
-        `Q${firstNumber}-${lastNumber} targeted repair failed:\n${parsed.error}`,
+      const parsed = parseCet6ReadingCQuestion(
+        reply,
+        passages[passageIndex],
+        passagePlan.index,
+        questionIndex,
+        passagePlan.sourceParagraphs[questionIndex],
+        passagePlan.questionKinds[questionIndex],
+        passagePlan.answerIndexes[questionIndex],
+        passagePlan.source,
       );
-      continue;
+      if (!parsed.ok) {
+        return {
+          questionNumber,
+          messages: repairMessages,
+          reply,
+          error: `Q${questionNumber} targeted repair failed:\n${parsed.error}`,
+        };
+      }
+      if (parsed.value.type !== "single-choice") {
+        return {
+          questionNumber,
+          messages: repairMessages,
+          reply,
+          error: `Q${questionNumber} targeted repair returned a non-choice question.`,
+        };
+      }
+      return {
+        questionNumber,
+        question: carryForwardReadingCRiskReviews(question, parsed.value),
+        messages: repairMessages,
+        reply,
+      };
+    }),
+  );
+  const errors: string[] = [];
+  const replacements = new Map<number, Question>();
+  for (const repair of repairs) {
+    messages.push(...repair.messages);
+    replies.push(repair.reply);
+    if ("error" in repair && repair.error) errors.push(repair.error);
+    if ("question" in repair && repair.question) {
+      replacements.set(repair.questionNumber, repair.question);
     }
-    current = [
-      ...current.filter((question) => {
-        const number = question.examSection?.questionNumber ?? 0;
-        return number < firstNumber || number > lastNumber;
-      }),
-      ...parsed.value,
-    ].sort(
-      (left, right) =>
-        (left.examSection?.questionNumber ?? 0) -
-        (right.examSection?.questionNumber ?? 0),
-    );
   }
-  return errors.length === 0
-    ? { ok: true, questions: current }
-    : { ok: false, error: errors.join("\n\n") };
+  const repairedQuestions = [
+    ...questions.filter(
+      (question) =>
+        !replacements.has(question.examSection?.questionNumber ?? 0),
+    ),
+    ...replacements.values(),
+  ].sort(
+    (left, right) =>
+      (left.examSection?.questionNumber ?? 0) -
+      (right.examSection?.questionNumber ?? 0),
+  );
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      error: errors.join("\n\n"),
+      questions: repairedQuestions,
+    };
+  }
+  return {
+    ok: true,
+    questions: repairedQuestions,
+  };
 }
 
 function balanceExistingListeningStages(
