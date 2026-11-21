@@ -7,6 +7,7 @@ import {
 import {
   buildCet6Paper,
   normalizeWritingOpeningQuotes,
+  padNearMinimumReadingCPassage,
   parseCet6Blueprint,
   parseCet6ReadingBPassage,
   parseCet6Stage,
@@ -31,6 +32,7 @@ import { createReadingCPlan } from "../cet/readingCPlan";
 import { toStudentVersion } from "../exam/studentVersion";
 import { groupQuestionsByType } from "../exam/paperSections";
 import { createCet6PaperTitle } from "../exam/paperTitle";
+import { wordCount } from "../cet/quality/textMetrics";
 
 const blueprint = {
   title: "Test blueprint",
@@ -106,6 +108,15 @@ function completeStageMap(): Record<Cet6ContentStage, Question[]> {
 }
 
 describe("CET-6 staged structure", () => {
+  it("pads an otherwise valid passage that is one to four words short", () => {
+    for (const count of [426, 427, 428, 429]) {
+      const passage = `${Array.from({ length: count }, () => "word").join(" ")}.`;
+      const padded = padNearMinimumReadingCPassage(passage);
+      expect(wordCount(padded)).toBe(430);
+    }
+    expect(wordCount(padNearMinimumReadingCPassage("too short"))).toBe(2);
+  });
+
   it("renders the supplied writing sentence with Chinese double quotes", () => {
     const ascii =
       'Directions: Write an essay. Opening sentence: "Faced with a changing world, students must learn to listen before they speak and reflect before they act."';

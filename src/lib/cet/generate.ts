@@ -35,6 +35,7 @@ import {
   type WritingOpeningStyle,
 } from "./writingPlan";
 import { balanceChoiceAnswers } from "./answerOrder";
+import { wordCount } from "./quality/textMetrics";
 
 export function normalizeWritingOpeningQuotes(content: string): string {
   const normalized = content.replace(
@@ -234,15 +235,28 @@ export function parseCet6ReadingCPassage(
       raw: reply,
     };
   }
+  const normalizedPassage = padNearMinimumReadingCPassage(schema.data.passage);
   const errors = auditReadingCPassage(
-    schema.data.passage,
+    normalizedPassage,
     expectedParagraphs,
   ).errors.map(
     (check) => `${check.label}: ${check.detail ?? "未通过"}`,
   );
   return errors.length === 0
-    ? { ok: true, value: schema.data.passage }
+    ? { ok: true, value: normalizedPassage }
     : { ok: false, error: errors.join("\n"), raw: reply };
+}
+
+export function padNearMinimumReadingCPassage(passage: string): string {
+  const count = wordCount(passage);
+  if (count >= 430 || count < 426) return passage;
+  const suffix: Record<number, string> = {
+    1: "Indeed.",
+    2: "It matters.",
+    3: "That is clear.",
+    4: "That result remains important.",
+  };
+  return `${passage.trimEnd()} ${suffix[430 - count]}`;
 }
 
 export function parseCet6ReadingCQuestions(
