@@ -241,6 +241,38 @@ describe("PaperCanvas", () => {
     expect(container.querySelector(".answer-block")).toBeInTheDocument();
   });
 
+  it("keeps long answer analysis visible after it crosses a page break", () => {
+    const explanation = Array.from(
+      { length: 36 },
+      (_, index) => `第${index + 1}句跨页解析内容。`,
+    ).join("");
+    paper = {
+      version: 1,
+      title: "答案跨页测试",
+      questions: [
+        {
+          id: "long-answer",
+          type: "single-choice",
+          content: "What is the main point?",
+          options: ["A", "B", "C", "D"],
+          correctAnswer: 0,
+          explanation,
+          score: 7.1,
+        },
+      ],
+    };
+    view = "answers";
+
+    const { container } = renderCanvas();
+    const visibleText = visiblePages(container)
+      .map((page) => page.textContent ?? "")
+      .join("");
+
+    expect(visiblePages(container).length).toBeGreaterThan(1);
+    expect(visibleText).toContain("第1句跨页解析内容");
+    expect(visibleText).toContain("第36句跨页解析内容");
+  });
+
   it("prints only listening options and reveals transcript and stem in answer analysis", () => {
     paper = {
       version: 1,

@@ -36,9 +36,13 @@ export function listeningPlanStats(
 
 export function assertCompleteListeningPlan(plan: ListeningSpeechPlan): void {
   const stats = listeningPlanStats(plan);
+  const questionSegments = plan.segments.filter((segment) =>
+    /(?:^|-)question-\d+$/.test(segment.id),
+  ).length;
   if (
-    stats.questionPauses !== EXPECTED_LISTENING_QUESTIONS ||
-    stats.groupAnnouncements !== EXPECTED_GROUP_ANNOUNCEMENTS
+    questionSegments === 0 ||
+    stats.groupAnnouncements === 0 ||
+    stats.questionPauses !== questionSegments
   ) {
     throw new Error("incompleteListeningPlan");
   }

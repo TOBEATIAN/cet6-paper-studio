@@ -246,6 +246,7 @@ export function importedDraftToPaper(
       stageTopics: SpecialtyStageTopicsSchema.parse({}),
       focusTopic: "",
     },
+    { preserveImportedGroups: true },
   );
   return {
     ...paper,

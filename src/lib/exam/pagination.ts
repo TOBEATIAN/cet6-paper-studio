@@ -12,6 +12,11 @@ import {
   splitPassageParagraphs,
 } from "./cetReadingLayout";
 import {
+  answerSectionsForQuestion,
+  splitAnswerSectionContent,
+  type AnswerSectionKey,
+} from "./answerSections";
+import {
   groupQuestionsByType,
   type PaperQuestionSection,
 } from "./paperSections";
@@ -36,6 +41,16 @@ export type PaperLayoutBlock =
       id: string;
       question: Question;
       number: number;
+      estimatedHeightMm: number;
+    }
+  | {
+      kind: "answer";
+      id: string;
+      question: Question;
+      number: number;
+      sectionKey: AnswerSectionKey;
+      content: string;
+      continued: boolean;
       estimatedHeightMm: number;
     }
   | {
@@ -272,20 +287,13 @@ export function buildPaperBlocks(
       continue;
     }
 
-    section.questions.forEach((question, index) => {
-      blocks.push({
-        kind: "question",
-        id: `question-${question.id}`,
-        question,
-        number: question.examSection?.questionNumber ?? index + 1,
-        estimatedHeightMm: estimateQuestionHeightMm(
-          question,
-          settings,
-          includeAnswers,
-          includeAnswerSummary,
-        ),
-      });
-    });
+    appendQuestionBlocks(
+      blocks,
+      section.questions,
+      settings,
+      includeAnswers,
+      includeAnswerSummary,
+    );
   }
 
   return blocks;
@@ -299,19 +307,48 @@ function appendQuestionBlocks(
   analysisView = false,
 ): void {
   questions.forEach((question, index) => {
+    const number = question.examSection?.questionNumber ?? index + 1;
     blocks.push({
       kind: "question",
       id: `question-${question.id}`,
       question,
-      number: question.examSection?.questionNumber ?? index + 1,
+      number,
       estimatedHeightMm: estimateQuestionHeightMm(
         question,
         settings,
-        includeAnswers,
+        analysisView ? false : includeAnswers,
         analysisView,
       ),
     });
+    if (analysisView) {
+      appendAnswerBlocks(blocks, question, number, settings);
+    }
   });
+}
+
+function appendAnswerBlocks(
+  blocks: PaperLayoutBlock[],
+  question: Question,
+  number: number,
+  settings: AppSettings,
+): void {
+  for (const section of answerSectionsForQuestion(question)) {
+    const chunks = splitAnswerSectionContent(section.content);
+    chunks.forEach((content, index) => {
+      blocks.push({
+        kind: "answer",
+        id: `answer-${question.id}-${section.key}-${index + 1}`,
+        question,
+        number,
+        sectionKey: section.key,
+        content,
+        continued: index > 0,
+        estimatedHeightMm: Math.ceil(
+          (1 + estimateTextLines(content)) * fontLineHeightMm(settings) + 8,
+        ),
+      });
+    });
+  }
 }
 
 function groupByQuestionGroup(

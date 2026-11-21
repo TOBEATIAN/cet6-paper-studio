@@ -1,6 +1,13 @@
 import type { ExamPaper, Question } from "../../types/exam";
-import type { Cet6ContentStage } from "../../types/cet";
-import { CET6_STAGE_SPECS } from "../structure";
+import type {
+  Cet6ContentStage,
+  SpecialtyListeningQuestionCounts,
+} from "../../types/cet";
+import {
+  CET6_STAGE_SPECS,
+  cet6StageGroups,
+  expectedQuestionCount,
+} from "../structure";
 import {
   ascendingStats,
   chineseCount,
@@ -63,7 +70,11 @@ function questionsOfKind(paper: ExamPaper, kind: string): Question[] {
 export function auditCet6Stage(
   stage: Cet6ContentStage,
   questions: readonly Question[],
-  options: { readingCSinglePassage?: boolean } = {},
+  options: {
+    listeningSingleGroup?: boolean;
+    listeningQuestionCounts?: SpecialtyListeningQuestionCounts;
+    readingCSinglePassage?: boolean;
+  } = {},
 ): Cet6QualityReport {
   const checks: QualityCheck[] = [];
   const add = (
@@ -81,10 +92,7 @@ export function auditCet6Stage(
       question.type === "single-choice",
   );
   const passages = groupPassages(questions);
-  const expected =
-    stage === "reading-c" && options.readingCSinglePassage
-      ? 5
-      : expectedCount(stage);
+  const expected = expectedQuestionCount(stage, options);
 
   add(
     `${stage}:count`,
@@ -99,7 +107,7 @@ export function auditCet6Stage(
   );
 
   if (choices.length > 0) {
-    auditChoiceStage(stage, choices, passages, add);
+    auditChoiceStage(stage, choices, passages, add, options);
   }
   if (stage === "writing") auditWriting(questions, add);
   if (stage === "reading-a") auditReadingA(questions, passages, add);
@@ -332,6 +340,11 @@ function auditChoiceStage(
   choices: readonly Extract<Question, { type: "single-choice" }>[],
   passages: readonly PassageGroup[],
   add: AddCheck,
+  options: {
+    listeningSingleGroup?: boolean;
+    listeningQuestionCounts?: SpecialtyListeningQuestionCounts;
+    readingCSinglePassage?: boolean;
+  } = {},
 ) {
   const expectedOptions =
     stage === "reading-a" ? 15 : stage === "reading-b" ? 13 : 4;
@@ -395,7 +408,7 @@ function auditChoiceStage(
     add(
       `${stage}:passages`,
       "听力材料完整且音频按题组组织",
-      passages.length === CET6_STAGE_SPECS[stage].groups.length &&
+      passages.length === cet6StageGroups(stage, options).length &&
         passages.every((group) => group.passage.trim().length > 0),
       `题组 ${passages.length}`,
     );
@@ -428,17 +441,24 @@ function auditChoiceStage(
       const total = words.reduce((sum, count) => sum + count, 0);
       add(
         "listening-c:length",
-        "听力 C 每篇 400-500 词且合计 1300-1450 词",
+        options.listeningSingleGroup
+          ? "听力 C 单篇训练材料 400-500 词"
+          : "听力 C 每篇 400-500 词且合计 1300-1450 词",
         words.every((count) => count >= 400 && count <= 500) &&
-          total >= 1300 &&
-          total <= 1450,
+          (options.listeningSingleGroup ||
+            (total >= 1300 && total <= 1450)),
         `${words.join("/")}；合计 ${total}`,
       );
     }
     add(
       `${stage}:answer-pattern`,
-      "听力答案覆盖 A-D 且无三连相同",
-      Object.values(countLetters(letters)).every((count) => count >= 1) &&
+      options.listeningSingleGroup
+        ? "听力专项答案至少覆盖三个字母且无三连相同"
+        : "听力答案覆盖 A-D 且无三连相同",
+      (options.listeningSingleGroup
+        ? Object.values(countLetters(letters)).filter((count) => count >= 1)
+            .length >= Math.min(3, letters.length)
+        : Object.values(countLetters(letters)).every((count) => count >= 1)) &&
         !hasThreeSameLetters(letters),
       JSON.stringify(countLetters(letters)),
     );
@@ -448,7 +468,8 @@ function auditChoiceStage(
       "套级四选项均值6.5-9词、正确项不系统性最长且长度差≤6词",
       optionStats.average >= 6.5 &&
       optionStats.average <= 9 &&
-      optionStats.correctLongest <= Math.floor(choices.length * 0.24) &&
+      optionStats.correctLongest <=
+        Math.max(1, Math.floor(choices.length * 0.24)) &&
         optionStats.maxSpread <= 6,
       `均值 ${optionStats.average.toFixed(1)}；正确项最长 ${optionStats.correctLongest}；最大差 ${optionStats.maxSpread}`,
     );
@@ -1440,13 +1461,6 @@ function directQuotesOwned(text: string): boolean {
       /\b[A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}\b/.test(window)
     );
   });
-}
-
-function expectedCount(stage: Cet6ContentStage): number {
-  return CET6_STAGE_SPECS[stage].groups.reduce(
-    (sum, group) => sum + Math.max(1, group.questionNumbers.length),
-    0,
-  );
 }
 
 function reportFromChecks(

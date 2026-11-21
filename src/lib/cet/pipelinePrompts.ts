@@ -2,10 +2,15 @@ import type { ApiMessage } from "../types/library";
 import type {
   Cet6Blueprint,
   Cet6ContentStage,
+  SpecialtyListeningQuestionCounts,
   SpecialtyStageTopics,
 } from "../types/cet";
 import type { Question } from "../types/exam";
-import { CET6_STAGE_SPECS, expectedQuestionCount } from "./structure";
+import {
+  CET6_STAGE_SPECS,
+  cet6StageGroups,
+  expectedQuestionCount,
+} from "./structure";
 import { createReadingBAnswerPlan } from "./readingBPlan";
 import type { ReadingCPassagePlan } from "./readingCPlan";
 import { readingCRealExamReferenceText } from "./realExamProfiles";
@@ -66,12 +71,17 @@ Constraints:
 export function buildCet6SpecialtyBlueprintPrompt(
   selectedStages: readonly Cet6ContentStage[],
   stageTopics: SpecialtyStageTopics,
+  listeningQuestionCounts?: SpecialtyListeningQuestionCounts,
 ): ApiMessage[] {
   const selected = new Set(selectedStages);
   const listening = selectedStages.filter((stage) =>
     stage.startsWith("listening"),
   );
   const reading = selectedStages.filter((stage) => stage.startsWith("reading"));
+  const bCase =
+    listeningQuestionCounts?.["listening-b"] === 4 ? "b2" : "b1";
+  const cCase =
+    listeningQuestionCounts?.["listening-c"] === 3 ? "c1" : "c3";
   const topicLines = selectedStages.map((stage) =>
     stage === "reading-c"
       ? `- reading-c: single close-reading article focus: ${stageTopics["reading-c"].first.trim() || "choose independently"}; do not develop a second article`
@@ -102,6 +112,8 @@ Rules:
 - ${selected.has("reading-c") ? "Develop exactly one Reading C close-reading subject and set readingC.second to Not selected." : "Mark both readingC subjects as Not selected."}
 - ${selected.has("translation") ? "Develop one translation topic." : "Set translation to Not selected."}
 - Blank directions must be chosen independently, not copied from another selected stage.
+- Each selected Specialty Listening section generates one material only: use a1 for
+  Listening A, ${bCase} for Listening B, and ${cCase} for Listening C.
 - Specialty Reading C contains one article and Q46-50 only.
 - Keep all selected concrete examples mutually distinct and commercially original.`,
     },
@@ -147,12 +159,15 @@ export function buildCet6StagePrompt(
     readingBAnswerIndexes?: readonly number[];
     readingAAnswerIndexes?: readonly number[];
     listeningAnswerIndexes?: readonly number[];
+    listeningSingleGroup?: boolean;
+    listeningQuestionCounts?: SpecialtyListeningQuestionCounts;
+    readingCSinglePassage?: boolean;
     writingOpeningStyle?: WritingOpeningStyle;
   } = {},
 ): ApiMessage[] {
   const spec = CET6_STAGE_SPECS[stage];
-  const count = expectedQuestionCount(stage);
-  const groups = spec.groups
+  const count = expectedQuestionCount(stage, options);
+  const groups = cet6StageGroups(stage, options)
     .map((group) => {
       const nums = group.questionNumbers;
       return nums.length > 0
@@ -176,7 +191,13 @@ export function buildCet6StagePrompt(
 {"id":"unique","type":"short-answer","content":"170-190 Chinese characters","referenceAnswer":"complete model translation","scoringPoints":["中文评分要点"],"explanation":"中文翻译难点","score":${spec.scorePerQuestion},"examSection":{"kind":"${spec.kind}","title":"${spec.labelEn}","glossary":[{"zh":"中文难词","en":"English hint"}]}}`;
 
   const passageRule = spec.passageRequired
-    ? stagePassageRule(stage, blueprint, options.readingBPassage)
+    ? stagePassageRule(
+        stage,
+        blueprint,
+        options.readingBPassage,
+        Boolean(options.listeningSingleGroup),
+        options.listeningQuestionCounts,
+      )
     : "No shared passage is required for this stage.";
   const stageQualityRule =
     stage === "writing"
@@ -213,16 +234,28 @@ like a real CET-6 cultural, social or technological passage rather than a list o
           : stage.startsWith("listening")
           ? `Keep options concise. Across this stage, the four-option average must be
 between 6.5 and 9 words; each question's longest-minus-shortest spread must be at most 6 words.
-The correct option must be the unique longest option in no more than 24% of questions.
-At most 16% of stems may use the "What does X say about" frame. In at most 16% of
-questions may a distractor share two or more content words with the correct option.
+The correct option must be the unique longest option in no more than ${
+            options.listeningSingleGroup
+              ? "one question in this single-material practice set"
+              : "24% of questions"
+          }.
+At most ${
+            options.listeningSingleGroup
+              ? "one stem"
+              : "16% of stems"
+          } may use the "What does X say about" frame. In at most ${
+            options.listeningSingleGroup
+              ? "one question"
+              : "16% of questions"
+          } may a distractor share two or more content words with the correct option.
 Use varied real-exam stems asking about purpose, reason, change, disadvantage, advice,
 attitude or implication. Questions should average 10-12 words and use 8+ letter words
-at roughly the real-paper rate; across the complete 25 questions, listening transcripts
-must contain 15%-18.8% words of 8+ letters and stems at least 16%. Across the
-complete 25 listening questions, the four answer
-letters must end with counts whose maximum minus minimum is at most 1. The target
-overall distribution is A6/B6/C6/D7, with no three consecutive identical answers.
+at roughly the real-paper rate; the supplied transcript must contain 15%-18.8%
+words of 8+ letters and stems at least 16%. ${
+            options.listeningSingleGroup
+              ? "Use at least three distinct answer letters in this one-material practice set."
+              : "Across the complete 25 listening questions, the four answer letters must end with counts whose maximum minus minimum is at most 1, targeting A6/B6/C6/D7."
+          } Do not allow three consecutive identical answers.
 ${listeningAnswerRule(options.listeningAnswerIndexes ?? [])}`
         : stage === "reading-b"
           ? readingBStatementRule(
@@ -643,27 +676,50 @@ function stagePassageRule(
   stage: Cet6ContentStage,
   blueprint: Cet6Blueprint,
   readingBPassage?: string,
+  listeningSingleGroup = false,
+  listeningQuestionCounts?: SpecialtyListeningQuestionCounts,
 ): string {
   if (stage === "listening-a") {
-    return `${listeningCaseRule(blueprint, "listening-a")}
-Put two complete conversation transcripts in two distinct groupIds, one per
-conversation. Each transcript is 360-400 English words, identifies speakers as
+    return `${listeningCaseRule(
+      blueprint,
+      "listening-a",
+      listeningSingleGroup,
+      4,
+    )}
+${listeningSingleGroup
+  ? "Put exactly one complete conversation transcript in the single groupId."
+  : "Put two complete conversation transcripts in two distinct groupIds, one per conversation."}
+Each transcript is 360-400 English words, identifies speakers as
 Woman:/Man:, and is placed in examSection.passage on the first question of its group.
-Keep each conversation within the mature 360-400 word window.
 Use listening-only option design: question stems average 10-12 words and at most one
-of eight stems may use “What does the X say about”.`;
+of ${listeningSingleGroup ? "the four" : "eight"} stems may use “What does the X say about”.`;
   }
   if (stage === "listening-b") {
-    return `${listeningCaseRule(blueprint, "listening-b")}
-Put two complete listening-passage transcripts in two distinct groupIds.
+    const count = listeningQuestionCounts?.["listening-b"] ?? 3;
+    return `${listeningCaseRule(
+      blueprint,
+      "listening-b",
+      listeningSingleGroup,
+      count,
+    )}
+${listeningSingleGroup
+  ? `Put exactly one complete listening-passage transcript in the single groupId. It contains ${count} questions.`
+  : "Put two complete listening-passage transcripts in two distinct groupIds."}
 Each transcript is 310-365 English words and is placed in examSection.passage on the
 first question of its group. Do not summarize the recording.`;
   }
   if (stage === "listening-c") {
-    return `${listeningCaseRule(blueprint, "listening-c")}
-Put three complete lecture/talk transcripts in three distinct groupIds. Each
-is 400-500 words and their total is 1300-1450 words. Place each transcript in
-examSection.passage on the first question of its group.`;
+    const count = listeningQuestionCounts?.["listening-c"] ?? 4;
+    return `${listeningCaseRule(
+      blueprint,
+      "listening-c",
+      listeningSingleGroup,
+      count,
+    )}
+${listeningSingleGroup
+  ? `Put exactly one complete lecture/talk transcript in the single groupId. It is 400-500 words and contains ${count} questions.`
+  : "Put three complete lecture/talk transcripts in three distinct groupIds. Each is 400-500 words and their total is 1300-1450 words."}
+Place each transcript in examSection.passage on the first question of its group.`;
   }
   if (stage === "reading-a") {
     return `The passage is 260-300 words and contains blanks numbered 26-35 in reading
@@ -700,6 +756,8 @@ institution in an opinion question.`;
 function listeningCaseRule(
   blueprint: Cet6Blueprint,
   stage: "listening-a" | "listening-b" | "listening-c",
+  singleGroup = false,
+  questionCount = stage === "listening-c" ? 4 : 3,
 ): string {
   const cases = blueprint.topics.listeningCases;
   if (!cases) {
@@ -712,11 +770,21 @@ service, product, rules, dates, or central example across groups.`;
       : stage === "listening-b"
         ? (["b1", "b2"] as const)
         : (["c1", "c2", "c3"] as const);
-  return `${keys
+  const selectedKeys = singleGroup
+    ? stage === "listening-c"
+      ? questionCount === 4
+        ? keys.slice(-1)
+        : keys.slice(0, 1)
+      : stage === "listening-b" && questionCount === 4
+        ? keys.slice(-1)
+        : keys.slice(0, 1)
+    : keys;
+  return `${selectedKeys
     .map((key) => `${key.toUpperCase()}: ${cases[key]}`)
     .join("\n")}
-Keep these seven blueprint cases mutually distinct. Do not borrow another group's
-institution, service, product, rules, dates, or central example.`;
+${singleGroup
+  ? "Use this single selected case only. Do not develop the other listening cases."
+  : "Keep these blueprint cases mutually distinct. Do not borrow another group's institution, service, product, rules, dates, or central example."}`;
 }
 
 function readingBStatementRule(answerIndexes: readonly number[]): string {

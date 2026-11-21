@@ -19,7 +19,9 @@ const MAX_ALIYUN_CHARS: usize = 600;
 const MAX_SPEECH_SEGMENT_CHARS: usize = 500;
 const TARGET_SAMPLE_RATE: u32 = 24_000;
 const ANSWER_PAUSE_MS: u32 = 13_100;
+#[cfg(test)]
 const EXPECTED_ANSWER_PAUSES: usize = 25;
+#[cfg(test)]
 const EXPECTED_GROUP_ANNOUNCEMENTS: usize = 7;
 const TTS_RETRIES: usize = 4;
 const KITTEN_SIDECAR_TIMEOUT: Duration = Duration::from_secs(15 * 60);
@@ -365,9 +367,24 @@ fn validate_listening_plan(plan: &ListeningSpeechPlan) -> AppResult<()> {
         .iter()
         .filter(|segment| segment.pause_after_ms == ANSWER_PAUSE_MS)
         .count();
-    if answer_pauses != EXPECTED_ANSWER_PAUSES {
+    let question_segments = plan
+        .segments
+        .iter()
+        .filter(|segment| {
+            segment
+                .id
+                .rsplit_once("-question-")
+                .is_some_and(|(_, number)| !number.is_empty())
+        })
+        .count();
+    if question_segments == 0 {
+        return Err(AppError::Io(
+            "listening speech plan has no question segments".into(),
+        ));
+    }
+    if answer_pauses != question_segments {
         return Err(AppError::Io(format!(
-            "the paper must contain {EXPECTED_ANSWER_PAUSES} listening questions, found {answer_pauses}"
+            "expected {question_segments} listening question pauses, found {answer_pauses}"
         )));
     }
     let announcements = plan
@@ -375,9 +392,9 @@ fn validate_listening_plan(plan: &ListeningSpeechPlan) -> AppResult<()> {
         .iter()
         .filter(|segment| segment.id.ends_with("-announcement"))
         .count();
-    if announcements != EXPECTED_GROUP_ANNOUNCEMENTS {
+    if announcements == 0 {
         return Err(AppError::Io(format!(
-            "expected {EXPECTED_GROUP_ANNOUNCEMENTS} listening group announcements, found {announcements}"
+            "expected at least one listening group announcement, found {announcements}"
         )));
     }
 

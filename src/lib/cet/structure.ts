@@ -1,5 +1,8 @@
 import type { QuestionType } from "../types/exam";
-import type { Cet6ContentStage } from "../types/cet";
+import type {
+  Cet6ContentStage,
+  SpecialtyListeningQuestionCounts,
+} from "../types/cet";
 
 export interface Cet6QuestionGroup {
   id: string;
@@ -17,6 +20,12 @@ export interface Cet6StageSpec {
   groups: readonly Cet6QuestionGroup[];
   passageRequired: boolean;
   hidePassageForStudent: boolean;
+}
+
+export interface Cet6StageScopeOptions {
+  listeningSingleGroup?: boolean;
+  listeningQuestionCounts?: SpecialtyListeningQuestionCounts;
+  readingCSinglePassage?: boolean;
 }
 
 function numbers(start: number, count: number): readonly number[] {
@@ -181,8 +190,31 @@ export const CET6_STAGE_SPECS: Record<Cet6ContentStage, Cet6StageSpec> = {
   },
 };
 
-export function expectedQuestionCount(stage: Cet6ContentStage): number {
-  return CET6_STAGE_SPECS[stage].groups.reduce(
+export function cet6StageGroups(
+  stage: Cet6ContentStage,
+  options: Cet6StageScopeOptions = {},
+): readonly Cet6QuestionGroup[] {
+  const groups = CET6_STAGE_SPECS[stage].groups;
+  if (stage.startsWith("listening-") && options.listeningSingleGroup) {
+    const count =
+      stage === "listening-b"
+        ? options.listeningQuestionCounts?.["listening-b"] ?? 3
+        : stage === "listening-c"
+          ? options.listeningQuestionCounts?.["listening-c"] ?? 4
+          : 4;
+    return groups.filter((group) => group.questionNumbers.length === count).slice(0, 1);
+  }
+  if (stage === "reading-c" && options.readingCSinglePassage) {
+    return groups.slice(0, 1);
+  }
+  return groups;
+}
+
+export function expectedQuestionCount(
+  stage: Cet6ContentStage,
+  options: Cet6StageScopeOptions = {},
+): number {
+  return cet6StageGroups(stage, options).reduce(
     (sum, group) => sum + Math.max(1, group.questionNumbers.length),
     0,
   );

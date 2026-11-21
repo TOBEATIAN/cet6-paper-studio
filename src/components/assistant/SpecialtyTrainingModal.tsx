@@ -3,7 +3,9 @@ import { useTranslation } from "react-i18next";
 import { Check, Sparkles, X } from "lucide-react";
 import {
   CET6_CONTENT_STAGES,
+  SpecialtyListeningQuestionCountsSchema,
   type Cet6ContentStage,
+  type SpecialtyListeningQuestionCounts,
   type SpecialtyStageTopics,
 } from "../../lib/types/cet";
 import type { Cet6GenerationScope } from "../../lib/types/cet";
@@ -29,6 +31,11 @@ export function SpecialtyTrainingModal({
   const [stageTopics, setStageTopics] = useState<SpecialtyStageTopics>(
     settings.stageTopics,
   );
+  const [listeningQuestionCounts, setListeningQuestionCounts] =
+    useState<SpecialtyListeningQuestionCounts>(
+      settings.listeningQuestionCounts ??
+        SpecialtyListeningQuestionCountsSchema.parse({}),
+    );
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
 
@@ -63,12 +70,14 @@ export function SpecialtyTrainingModal({
           selectedStages: selected,
           focusTopic: "",
           stageTopics,
+          listeningQuestionCounts,
         },
       });
       await onStart({
         mode: "specialty",
         selectedStages: selected,
         stageTopics,
+        listeningQuestionCounts,
         focusTopic: "",
       });
       onClose();
@@ -163,22 +172,81 @@ export function SpecialtyTrainingModal({
                   </span>
                 </label>
               ) : (
-                <input
-                  value={stageTopics[stage] as string}
-                  onChange={(event) => {
-                    const topic = event.target.value;
-                    setStageTopics((current) => ({
-                      ...current,
-                      [stage]: topic,
-                    }));
-                  }}
-                  placeholder={t("specialty.randomIfEmpty")}
-                  aria-label={t("specialty.topicForStage", {
-                    stage: t(stageLabelKey(stage)),
-                  })}
-                  className={`${inputCls} mt-2 w-full`}
-                  maxLength={120}
-                />
+                <>
+                  <input
+                    value={stageTopics[stage] as string}
+                    onChange={(event) => {
+                      const topic = event.target.value;
+                      setStageTopics((current) => ({
+                        ...current,
+                        [stage]: topic,
+                      }));
+                    }}
+                    placeholder={t("specialty.randomIfEmpty")}
+                    aria-label={t("specialty.topicForStage", {
+                      stage: t(stageLabelKey(stage)),
+                    })}
+                    className={`${inputCls} mt-2 w-full`}
+                    maxLength={120}
+                  />
+                  {stage.startsWith("listening-") && (
+                    <>
+                      {stage !== "listening-a" && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {t("specialty.listeningQuestionCount")}
+                          </span>
+                          <div
+                            role="group"
+                            aria-label={t("specialty.listeningQuestionCount")}
+                            className="inline-flex rounded-md border border-border"
+                          >
+                            {([3, 4] as const).map((count) => {
+                              const selectedCount =
+                                listeningQuestionCounts[
+                                  stage as "listening-b" | "listening-c"
+                                ];
+                              return (
+                                <button
+                                  key={count}
+                                  type="button"
+                                  aria-pressed={selectedCount === count}
+                                  onClick={() =>
+                                    setListeningQuestionCounts((current) => ({
+                                      ...current,
+                                      [stage]: count,
+                                    }))
+                                  }
+                                  className={`h-7 min-w-8 px-2 text-xs font-medium first:rounded-l-md last:rounded-r-md ${
+                                    selectedCount === count
+                                      ? "bg-primary text-primary-foreground"
+                                      : "bg-background text-foreground hover:bg-accent"
+                                  }`}
+                                >
+                                  {count}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      <span className="mt-1 block text-[11px] text-muted-foreground">
+                        {t("specialty.listeningSingleHint", {
+                          range:
+                            stage === "listening-a"
+                              ? "Q1–4"
+                              : stage === "listening-b"
+                                ? listeningQuestionCounts["listening-b"] === 4
+                                  ? "Q12–15"
+                                  : "Q9–11"
+                                : listeningQuestionCounts["listening-c"] === 4
+                                  ? "Q22–25"
+                                  : "Q16–18",
+                        })}
+                      </span>
+                    </>
+                  )}
+                </>
               )}
             </div>
           ))}

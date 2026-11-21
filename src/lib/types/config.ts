@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { SpecialtyStageTopicsSchema } from "./cet";
+import {
+  SpecialtyListeningQuestionCountsSchema,
+  SpecialtyStageTopicsSchema,
+} from "./cet";
 
 /**
  * App configuration model. Persisted to `config.json` in the user-chosen data
@@ -510,6 +513,8 @@ export const AppSettingsSchema = z.object({
         .default([]),
       focusTopic: z.string().default(""),
       stageTopics: SpecialtyStageTopicsSchema.prefault({}),
+      listeningQuestionCounts:
+        SpecialtyListeningQuestionCountsSchema.prefault({}),
     })
     .prefault({}),
   /** Max number of historical messages sent to the model per turn (0 = unlimited). */

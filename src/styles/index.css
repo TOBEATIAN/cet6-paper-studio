@@ -441,6 +441,12 @@
   }
 
   .paper-block-stack
+    > [data-layout-block-kind="answer"]
+    + [data-layout-block-kind="answer"] {
+    margin-top: 4px;
+  }
+
+  .paper-block-stack
     > [data-layout-block-kind="reading-passage"]
     + [data-layout-block-kind="reading-passage"] {
     margin-top: 6px;

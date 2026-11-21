@@ -311,16 +311,25 @@ describe("CET-6 listening group order", () => {
     const printed = buildPaperBlocks(paper, settings, true, false).find(
       (block) => block.kind === "question",
     );
-    const answers = buildPaperBlocks(paper, settings, true, true).find(
+    const answerViewBlocks = buildPaperBlocks(paper, settings, true, true);
+    const answers = answerViewBlocks.find(
       (block) => block.kind === "question",
+    );
+    const detachedAnswers = answerViewBlocks.filter(
+      (block) => block.kind === "answer",
     );
 
     expect(printed?.kind).toBe("question");
     expect(answers?.kind).toBe("question");
+    expect(detachedAnswers.length).toBeGreaterThan(0);
     if (printed?.kind === "question" && answers?.kind === "question") {
-      expect(answers.estimatedHeightMm).toBeGreaterThan(
-        printed.estimatedHeightMm,
-      );
+      expect(
+        answers.estimatedHeightMm +
+          detachedAnswers.reduce(
+            (sum, block) => sum + block.estimatedHeightMm,
+            0,
+          ),
+      ).toBeGreaterThan(printed.estimatedHeightMm);
     }
   });
 

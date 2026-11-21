@@ -43,12 +43,13 @@ import {
   formatReadingBParagraphLabel,
   normalizeWordBank,
 } from "../../lib/exam/cetReadingLayout";
-import { QuestionBlock } from "./QuestionBlock";
+import { AnswerSection, QuestionBlock } from "./QuestionBlock";
 import { QuestionEditModal } from "./QuestionEditModal";
 import { ExamInfoHeader } from "./ExamInfoHeader";
 import { Markdown } from "./Markdown";
 import { PracticeNoteControl } from "../practice/PracticeNoteControl";
 import { PracticeHighlights } from "../practice/PracticeHighlights";
+import { answerSectionTranslationKey } from "../../lib/exam/answerSections";
 
 const PAPER_BLOCK_SPACING_CLASS = "paper-block-stack";
 const PAPER_BLOCK_GAP_MM = pxToMm(12);
@@ -108,8 +109,14 @@ export function PaperCanvas({
   const includeAnswers = view !== "student";
   const analysisView = view === "answers";
   const blocks = useMemo(
-    () => buildPaperBlocks(display, paperSettings, includeAnswers),
-    [display, paperSettings, includeAnswers],
+    () =>
+      buildPaperBlocks(
+        display,
+        paperSettings,
+        includeAnswers,
+        analysisView,
+      ),
+    [analysisView, display, paperSettings, includeAnswers],
   );
   const estimatedPages = useMemo(
     () =>
@@ -869,6 +876,7 @@ function PaperBlock({
                 }
                 studentView={studentView}
                 analysisView={analysisView}
+                detachAnswer={analysisView}
                 onEdit={measuring ? () => undefined : onEdit}
               />
             ))}
@@ -898,12 +906,29 @@ function PaperBlock({
               index={block.number - 1}
               studentView={studentView}
               analysisView={analysisView}
+              detachAnswer={analysisView}
               onEdit={measuring ? () => undefined : onEdit}
             />
           </ol>
         </div>
       );
       }
+    case "answer":
+      return (
+        <div
+          {...attrs}
+          className="answer-block rounded-md bg-primary/10 px-3 py-2 text-sm text-foreground"
+        >
+          <p className="mb-1 text-xs font-medium text-primary">
+            {t("paper.answerForQuestion", { number: block.number })}
+            {block.continued ? t("paper.answerContinued") : ""}
+          </p>
+          <AnswerSection
+            label={t(answerSectionTranslationKey(block.sectionKey))}
+            content={block.content}
+          />
+        </div>
+      );
   }
 }
 
@@ -1147,6 +1172,14 @@ function blockContentSignature(block: PaperLayoutBlock): string {
         block.number,
         paginationValue(block.question),
         block.estimatedHeightMm,
+      ]);
+    case "answer":
+      return stableSignature([
+        block.id,
+        block.number,
+        block.sectionKey,
+        block.content,
+        block.continued,
       ]);
   }
 }

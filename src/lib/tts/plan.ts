@@ -99,7 +99,11 @@ export function buildListeningSpeechPlan(
     segments.push({
       id: `${kind}-directions`,
       role: "narrator",
-      text: DIRECTIONS[kind],
+      text: directionsFor(
+        kind,
+        groups.length,
+        groups[0]?.questions.length ?? 0,
+      ),
       pauseAfterMs: 800,
       section: kind,
     });
@@ -180,6 +184,27 @@ export function buildListeningSpeechPlan(
   }
 
   return { version: 1, targetWpm, segments };
+}
+
+function directionsFor(
+  kind: ListeningKind,
+  groupCount: number,
+  firstGroupQuestions: number,
+): string {
+  if (groupCount <= 1) {
+    if (kind === "cet-listening-a") {
+      return "In this section, you will hear one long conversation. At the end of the conversation, you will hear four questions. Both the conversation and the questions will be spoken only once. After you hear a question, you must choose the best answer from the four choices marked A, B, C and D. Then mark the corresponding letter on Answer Sheet 1 with a single line through the centre.";
+    }
+    if (kind === "cet-listening-b") {
+      return `Section B, directions. In this section, you will hear one passage. At the end of the passage, you will hear ${numberWord(firstGroupQuestions)} questions. Both the passage and the questions will be spoken only once. After you hear a question, you must choose the best answer from the four choices marked A, B, C and D. Then mark the corresponding letter on Answer Sheet 1 with a single line through the centre.`;
+    }
+    return `Section C, directions. In this section, you will hear one recording of a lecture or talk followed by ${numberWord(firstGroupQuestions)} questions. The recording will be played only once. After you hear a question, you must choose the best answer from the four choices marked A, B, C and D. Then mark the corresponding letter on Answer Sheet 1 with a single line through the centre.`;
+  }
+  return DIRECTIONS[kind];
+}
+
+function numberWord(value: number): string {
+  return value === 3 ? "three" : value === 4 ? "four" : String(value);
 }
 
 export function parseConversationTurns(

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCet6ReadingCSingleRiskRepairPrompt,
   buildCet6SpecialtyBlueprintPrompt,
+  buildCet6StagePrompt,
 } from "../cet/pipelinePrompts";
 import {
   buildCet6Paper,
@@ -11,6 +12,8 @@ import {
 } from "../cet/generate";
 import type { Question } from "../types/exam";
 import { SpecialtyStageTopicsSchema } from "../types/cet";
+import type { Cet6ContentStage } from "../types/cet";
+import { cet6StageGroups } from "../cet/structure";
 
 describe("specialty generation", () => {
   it("builds a blueprint prompt only for selected stages", () => {
@@ -47,6 +50,133 @@ describe("specialty generation", () => {
     expect(prompt).not.toContain("Develop two distinct Reading C");
   });
 
+  it("scopes each specialty listening section to one material and its first group", () => {
+    const cases = {
+      a1: "campus bike repair",
+      a2: "not used",
+      b1: "library noise study",
+      b2: "not used",
+      c1: "urban cooling lecture",
+      c2: "not used",
+      c3: "not used",
+    };
+    const blueprint = {
+      title: "Listening specialty",
+      topics: {
+        writing: "unused",
+        listening: "selected",
+        listeningCases: cases,
+        reading: "unused",
+        translation: "unused",
+      },
+    };
+    const expected = [
+      ["listening-a", 4, "Put exactly one complete conversation transcript"],
+      [
+        "listening-b",
+        3,
+        "Put exactly one complete listening-passage transcript",
+      ],
+      ["listening-c", 4, "Put exactly one complete lecture/talk transcript"],
+    ] as const satisfies ReadonlyArray<
+      readonly [Cet6ContentStage, number, string]
+    >;
+    for (const [stage, count, material] of expected) {
+      const prompt = buildCet6StagePrompt(
+        stage,
+        blueprint,
+        undefined,
+        {
+          listeningSingleGroup: true,
+          listeningAnswerIndexes:
+            count === 4 ? [0, 1, 2, 3] : [0, 1, 2],
+        },
+      )
+        .map((message) => message.content)
+        .join("\n");
+      expect(prompt).toContain(`exact question count: ${count}`);
+      expect(prompt).toContain(material);
+      expect(prompt).toContain("Do not develop the other listening cases");
+    }
+    expect(
+      cet6StageGroups("listening-a", { listeningSingleGroup: true })[0]
+        .questionNumbers,
+    ).toEqual([1, 2, 3, 4]);
+    expect(
+      cet6StageGroups("listening-b", { listeningSingleGroup: true })[0]
+        .questionNumbers,
+    ).toEqual([9, 10, 11]);
+    expect(
+      cet6StageGroups("listening-c", { listeningSingleGroup: true })[0]
+        .questionNumbers,
+    ).toEqual([22, 23, 24, 25]);
+  });
+
+  it("uses the selected three- or four-question listening material", () => {
+    const topics = {
+      ...SpecialtyStageTopicsSchema.parse({}),
+      "listening-b": "campus",
+      "listening-c": "science",
+    };
+    const counts = {
+      "listening-b": 4 as const,
+      "listening-c": 3 as const,
+    };
+    expect(
+      cet6StageGroups("listening-b", {
+        listeningSingleGroup: true,
+        listeningQuestionCounts: counts,
+      })[0].questionNumbers,
+    ).toEqual([12, 13, 14, 15]);
+    expect(
+      cet6StageGroups("listening-c", {
+        listeningSingleGroup: true,
+        listeningQuestionCounts: counts,
+      })[0].questionNumbers,
+    ).toEqual([16, 17, 18]);
+    const blueprintPrompt = buildCet6SpecialtyBlueprintPrompt(
+      ["listening-b", "listening-c"],
+      topics,
+      counts,
+    )
+      .map((message) => message.content)
+      .join("\n");
+    expect(blueprintPrompt).toContain("b2 for Listening B");
+    expect(blueprintPrompt).toContain("c1 for Listening C");
+    const stagePrompt = buildCet6StagePrompt(
+      "listening-b",
+      {
+        title: "Listening practice",
+        topics: {
+          writing: "unused",
+          listening: "selected",
+          listeningCases: {
+            a1: "unused",
+            a2: "unused",
+            b1: "three-question passage",
+            b2: "four-question passage",
+            c1: "unused",
+            c2: "unused",
+            c3: "unused",
+          },
+          reading: "unused",
+          translation: "unused",
+        },
+      },
+      undefined,
+      {
+        listeningSingleGroup: true,
+        listeningQuestionCounts: counts,
+        listeningAnswerIndexes: [0, 1, 2, 3],
+      },
+    )
+      .map((message) => message.content)
+      .join("\n");
+    expect(stagePrompt).toContain("exact question count: 4");
+    expect(stagePrompt).toContain("B2: four-question passage");
+    expect(stagePrompt).toContain("numbering 12-15");
+  });
+
   it("preserves section numbering and score for a one-section paper", () => {
     const questions: Question[] = Array.from({ length: 7 }, (_, index) => ({
       id: `b-${index + 1}`,
@@ -76,9 +206,9 @@ describe("specialty generation", () => {
       },
     );
     expect(paper.questions.map((question) => question.examSection?.questionNumber)).toEqual([
-      9, 10, 11, 12, 13, 14, 15,
+      9, 10, 11,
     ]);
-    expect(paper.metadata?.totalScore).toBeCloseTo(49.7, 6);
+    expect(paper.metadata?.totalScore).toBeCloseTo(21.3, 6);
     expect(paper.metadata?.duration).toBe(30);
     expect(paper.practiceScope).toMatchObject({
       mode: "specialty",

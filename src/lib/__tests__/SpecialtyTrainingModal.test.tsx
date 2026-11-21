@@ -3,7 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "../../i18n";
 import { SpecialtyTrainingModal } from "../../components/assistant/SpecialtyTrainingModal";
-import { SpecialtyStageTopicsSchema } from "../types/cet";
+import {
+  SpecialtyListeningQuestionCountsSchema,
+  SpecialtyStageTopicsSchema,
+} from "../types/cet";
 
 const mocks = vi.hoisted(() => ({
   updateSettings: vi.fn(),
@@ -18,6 +21,9 @@ vi.mock("../../stores/configStore", () => ({
             selectedStages: string[];
             focusTopic: string;
             stageTopics: ReturnType<typeof SpecialtyStageTopicsSchema.parse>;
+            listeningQuestionCounts: ReturnType<
+              typeof SpecialtyListeningQuestionCountsSchema.parse
+            >;
           };
         };
       };
@@ -31,6 +37,8 @@ vi.mock("../../stores/configStore", () => ({
             selectedStages: [],
             focusTopic: "",
             stageTopics: SpecialtyStageTopicsSchema.parse({}),
+            listeningQuestionCounts:
+              SpecialtyListeningQuestionCountsSchema.parse({}),
           },
         },
       },
@@ -57,6 +65,9 @@ describe("SpecialtyTrainingModal", () => {
       "校园科技",
     );
     await userEvent.click(
+      screen.getByRole("button", { name: "4", pressed: false }),
+    );
+    await userEvent.click(
       screen.getByRole("button", { name: "开始生成专项卷" }),
     );
 
@@ -68,6 +79,10 @@ describe("SpecialtyTrainingModal", () => {
           ...SpecialtyStageTopicsSchema.parse({}),
           "listening-b": "校园科技",
         },
+        listeningQuestionCounts: {
+          "listening-b": 4,
+          "listening-c": 4,
+        },
       },
     });
     expect(onStart).toHaveBeenCalledWith({
@@ -77,6 +92,10 @@ describe("SpecialtyTrainingModal", () => {
       stageTopics: {
         ...SpecialtyStageTopicsSchema.parse({}),
         "listening-b": "校园科技",
+      },
+      listeningQuestionCounts: {
+        "listening-b": 4,
+        "listening-c": 4,
       },
     });
   });

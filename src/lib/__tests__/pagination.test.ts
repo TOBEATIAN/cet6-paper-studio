@@ -212,4 +212,38 @@ describe("pagination", () => {
       297 - 20 - 20 - 12 - 10,
     );
   });
+
+  it("splits long answer analysis into paged continuation blocks", () => {
+    const explanation = Array.from(
+      { length: 36 },
+      (_, index) => `第${index + 1}句说明：这是用于验证跨页答案解析不会丢失的内容。`,
+    ).join("");
+    const paper = ExamPaperSchema.parse({
+      title: "答案跨页测试",
+      questions: [
+        {
+          id: "answer-cross-page",
+          type: "single-choice",
+          content: "What is the main point?",
+          options: ["A", "B", "C", "D"],
+          correctAnswer: 0,
+          explanation,
+          score: 7.1,
+        },
+      ],
+    });
+    const blocks = buildPaperBlocks(paper, settings, true, true);
+    const answerBlocks = blocks.filter(
+      (
+        block,
+      ): block is Extract<PaperLayoutBlock, { kind: "answer" }> =>
+        block.kind === "answer",
+    );
+
+    expect(answerBlocks.length).toBeGreaterThan(1);
+    expect(answerBlocks.map((block) => block.content).join("")).toContain(
+      "第36句说明",
+    );
+    expect(blocks.some((block) => block.kind === "answer-summary")).toBe(true);
+  });
 });

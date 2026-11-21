@@ -2,9 +2,11 @@ import type { ExamPaper, Question } from "../types/exam";
 import { z } from "zod";
 import {
   Cet6BlueprintSchema,
+  SpecialtyListeningQuestionCountsSchema,
   type Cet6Blueprint,
   type Cet6ContentStage,
   type Cet6GenerationScope,
+  type SpecialtyListeningQuestionCounts,
 } from "../types/cet";
 import { extractJson } from "../api/extractJson";
 import { validateQuestions } from "../api/validateQuestions";
@@ -17,6 +19,7 @@ import {
 } from "../exam/paperTitle";
 import {
   CET6_STAGE_SPECS,
+  cet6StageGroups,
   expectedQuestionCount,
   type Cet6QuestionGroup,
 } from "./structure";
@@ -87,6 +90,9 @@ export function parseCet6Stage(
     skipQualityAudit?: boolean;
     expectedWritingOpeningStyle?: WritingOpeningStyle;
     expectedAnswerIndexes?: readonly number[];
+    listeningSingleGroup?: boolean;
+    listeningQuestionCounts?: SpecialtyListeningQuestionCounts;
+    readingCSinglePassage?: boolean;
   } = {},
 ): ParseResult<Question[]> {
   const result = validateQuestions(reply);
@@ -111,8 +117,13 @@ export function parseCet6Stage(
           content: normalizeWritingOpeningQuotes(question.content),
         }))
       : parsedQuestions;
+  const stageScope = {
+    listeningSingleGroup: options.listeningSingleGroup,
+    listeningQuestionCounts: options.listeningQuestionCounts,
+    readingCSinglePassage: options.readingCSinglePassage,
+  };
   const errors = [
-    ...validateCet6StageQuestions(stage, questions),
+    ...validateCet6StageQuestions(stage, questions, stageScope),
     ...(options.expectedAnswerIndexes
       ? expectedAnswerErrors(questions, options.expectedAnswerIndexes)
       : []),
@@ -124,7 +135,7 @@ export function parseCet6Stage(
       : []),
     ...(options.skipQualityAudit
       ? []
-      : auditCet6Stage(stage, questions).errors.map(
+      : auditCet6Stage(stage, questions, stageScope).errors.map(
           (check) => `${check.label}: ${check.detail ?? "未通过"}`,
         )),
   ];
@@ -394,13 +405,14 @@ export function parseCet6ReadingCQuestion(
 export function validateCet6StageQuestions(
   stage: Cet6ContentStage,
   questions: readonly Question[],
-  options: { readingCSinglePassage?: boolean } = {},
+  options: {
+    listeningSingleGroup?: boolean;
+    listeningQuestionCounts?: SpecialtyListeningQuestionCounts;
+    readingCSinglePassage?: boolean;
+  } = {},
 ): string[] {
   const spec = CET6_STAGE_SPECS[stage];
-  const expected =
-    stage === "reading-c" && options.readingCSinglePassage
-      ? 5
-      : expectedQuestionCount(stage);
+  const expected = expectedQuestionCount(stage, options);
   const expectedOptions =
     stage === "reading-a" ? 15 : stage === "reading-b" ? 13 : 4;
   const errors: string[] = [];
@@ -457,10 +469,7 @@ export function validateCet6StageQuestions(
   }
 
   let offset = 0;
-  const groups =
-    stage === "reading-c" && options.readingCSinglePassage
-      ? spec.groups.slice(0, 1)
-      : spec.groups;
+  const groups = cet6StageGroups(stage, options);
   for (const group of groups) {
     const count = group.questionNumbers.length;
     if (count === 0) continue;
@@ -500,6 +509,11 @@ export function validateCet6StageQuestions(
 export function normalizeCet6StageQuestions(
   stage: Cet6ContentStage,
   questions: readonly Question[],
+  options: {
+    listeningSingleGroup?: boolean;
+    listeningQuestionCounts?: SpecialtyListeningQuestionCounts;
+    readingCSinglePassage?: boolean;
+  } = {},
 ): Question[] {
   const spec = CET6_STAGE_SPECS[stage];
   const normalizedQuestions =
@@ -517,7 +531,7 @@ export function normalizeCet6StageQuestions(
           : undefined)
       : undefined;
   let offset = 0;
-  return spec.groups.flatMap((group, groupIndex) => {
+  return cet6StageGroups(stage, options).flatMap((group, groupIndex) => {
     const count = group.questionNumbers.length;
     const groupQuestions =
       count === 0
@@ -558,17 +572,29 @@ export function buildCet6Paper(
   questionsByStage: Partial<Record<Cet6ContentStage, readonly Question[]>>,
   generatedAt = new Date(),
   scope?: Cet6GenerationScope,
+  options: { preserveImportedGroups?: boolean } = {},
 ): ExamPaper {
   const selected =
     scope?.mode === "specialty" && scope.selectedStages.length > 0
       ? scope.selectedStages
       : (Object.keys(CET6_STAGE_SPECS) as Cet6ContentStage[]);
   const selectedSet = new Set(selected);
+  const specialtyScope =
+    scope?.mode === "specialty" && !options.preserveImportedGroups;
   const questions = (Object.keys(CET6_STAGE_SPECS) as Cet6ContentStage[]).flatMap((key) => {
     const stage = key as Cet6ContentStage;
     const questions = questionsByStage[stage];
     return questions && selectedSet.has(stage)
-      ? normalizeCet6StageQuestions(stage, questions)
+      ? normalizeCet6StageQuestions(stage, questions, {
+          listeningSingleGroup:
+            specialtyScope && stage.startsWith("listening-"),
+          listeningQuestionCounts: specialtyScope
+            ? scope.listeningQuestionCounts ??
+              SpecialtyListeningQuestionCountsSchema.parse({})
+            : undefined,
+          readingCSinglePassage:
+            specialtyScope && stage === "reading-c",
+        })
       : [];
   });
   const totalScore =

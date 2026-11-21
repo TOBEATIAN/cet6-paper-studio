@@ -31,12 +31,17 @@ import { Markdown } from "./Markdown";
 import { PracticeNoteControl } from "../practice/PracticeNoteControl";
 import { applyTranslationGlossary } from "../../lib/exam/translationGlossary";
 import { useTwoColumnReadingOptions } from "../../lib/exam/cetReadingLayout";
+import {
+  answerSectionTranslationKey,
+  answerSectionsForQuestion,
+} from "../../lib/exam/answerSections";
 
 interface QuestionBlockProps {
   question: Question;
   index: number;
   studentView: boolean;
   analysisView?: boolean;
+  detachAnswer?: boolean;
   onEdit: (id: string) => void;
 }
 
@@ -50,6 +55,7 @@ export function QuestionBlock({
   index,
   studentView,
   analysisView = false,
+  detachAnswer = false,
   onEdit,
 }: QuestionBlockProps) {
   const { t } = useTranslation();
@@ -275,7 +281,7 @@ export function QuestionBlock({
             <PracticeTextAnswer question={question} submitted={submitted} />
           )}
 
-          {!studentView && analysisView && (
+          {!studentView && analysisView && !detachAnswer && (
             <AnswerBlock question={question} />
           )}
           {!studentView && !analysisView && (
@@ -501,33 +507,18 @@ function isChoiceQuestion(
 
 function AnswerBlock({ question }: { question: Question }) {
   const { t } = useTranslation();
-  const explanation =
-    "explanation" in question ? question.explanation : undefined;
-
-  const sections = getAnswerSections(question, {
-    answer: t("paper.answer"),
-    solution: t("paper.solution"),
-    scoringPoints: t("paper.scoringPoints"),
-    referenceEssay: t("paper.referenceEssay"),
-    writingGuidance: t("paper.writingGuidance"),
-    scoringCriteria: t("paper.scoringCriteria"),
-    true: t("paper.true"),
-    false: t("paper.false"),
-  });
-
-  if (!explanation && sections.length === 0) return null;
+  const sections = answerSectionsForQuestion(question);
+  if (sections.length === 0) return null;
 
   return (
     <div className="answer-block mt-2 rounded-md bg-primary/10 px-3 py-2 text-sm text-foreground">
       {sections.map((section) => (
-        <AnswerSection key={section.label} {...section} />
-      ))}
-      {explanation && question.type !== "essay" && (
         <AnswerSection
-          label={t("paper.explanation")}
-          content={explanation}
+          key={section.key}
+          label={t(answerSectionTranslationKey(section.key))}
+          content={section.content}
         />
-      )}
+      ))}
     </div>
   );
 }
@@ -537,8 +528,14 @@ interface AnswerSectionProps {
   content?: string;
 }
 
-function AnswerSection({ label, content }: AnswerSectionProps) {
-  const safeContent = content ?? "";
+export function AnswerSection({ label, content }: AnswerSectionProps) {
+  const { t } = useTranslation();
+  const safeContent =
+    content === "TRUE"
+      ? t("paper.true")
+      : content === "FALSE"
+        ? t("paper.false")
+        : content ?? "";
   if (!safeContent.trim()) return null;
 
   return (
@@ -549,96 +546,6 @@ function AnswerSection({ label, content }: AnswerSectionProps) {
       </div>
     </div>
   );
-}
-
-function getAnswerSections(
-  question: Question,
-  labels: {
-    answer: string;
-    solution: string;
-    scoringPoints: string;
-    referenceEssay: string;
-    writingGuidance: string;
-    scoringCriteria: string;
-    true: string;
-    false: string;
-  },
-): AnswerSectionProps[] {
-  switch (question.type) {
-    case "single-choice":
-      return [
-        {
-          label: labels.answer,
-          content: String.fromCharCode(65 + question.correctAnswer),
-        },
-      ];
-    case "multiple-choice":
-      return [
-        {
-          label: labels.answer,
-          content: (Array.isArray(question.correctAnswers)
-            ? question.correctAnswers
-            : []
-          )
-            .map((i) => String.fromCharCode(65 + i))
-            .join(", "),
-        },
-      ];
-    case "true-false":
-      return [
-        {
-          label: labels.answer,
-          content: question.correctAnswer ? labels.true : labels.false,
-        },
-      ];
-    case "fill-in-blank":
-      return [
-        {
-          label: labels.answer,
-          content: (Array.isArray(question.blanks) ? question.blanks : []).join(
-            " / ",
-          ),
-        },
-      ];
-    case "short-answer": {
-      const sections = [
-        { label: labels.answer, content: question.referenceAnswer },
-      ];
-      if (question.scoringPoints?.length) {
-        sections.push({
-          label: labels.scoringPoints,
-          content: question.scoringPoints.map((point) => `- ${point}`).join("\n"),
-        });
-      }
-      return sections;
-    }
-    case "essay":
-      return [
-        ...(question.referenceAnswer
-          ? [
-              {
-                label: labels.referenceEssay,
-                content: question.referenceAnswer,
-              },
-            ]
-          : []),
-        ...(question.writingGuidance || question.explanation
-          ? [{
-              label: labels.writingGuidance,
-              content: question.writingGuidance ?? question.explanation,
-            }]
-          : []),
-        {
-          label: labels.scoringCriteria,
-          content: question.scoringCriteria,
-        },
-      ];
-    case "calculation":
-      return [
-        { label: labels.answer, content: question.answer },
-        { label: labels.solution, content: question.solution },
-      ];
-  }
 }
 
 function ActionButton({

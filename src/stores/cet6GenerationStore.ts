@@ -3,6 +3,7 @@ import {
   CET6_CHECKPOINT_VERSION,
   CET6_CONTENT_STAGES,
   CET6_PIPELINE_PHASES,
+  SpecialtyListeningQuestionCountsSchema,
   SpecialtyStageTopicsSchema,
   type Cet6Blueprint,
   type Cet6ContentStage,
@@ -102,6 +103,7 @@ function fullGenerationScope(): Cet6GenerationScope {
     mode: "full",
     selectedStages: [],
     stageTopics: SpecialtyStageTopicsSchema.parse({}),
+    listeningQuestionCounts: SpecialtyListeningQuestionCountsSchema.parse({}),
     focusTopic: "",
   };
 }
@@ -193,6 +195,9 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
                 second: "Not selected",
               },
             },
+            listeningQuestionCounts:
+              requestedScope.listeningQuestionCounts ??
+              SpecialtyListeningQuestionCountsSchema.parse({}),
             focusTopic: requestedScope.focusTopic.trim(),
           }
         : fullGenerationScope();
@@ -293,6 +298,8 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
       const balancedCheckpoint = balanceExistingListeningStages(
         checkpoint,
         paperId,
+        scope.mode === "specialty",
+        scope.listeningQuestionCounts,
       );
       if (balancedCheckpoint !== checkpoint) {
         checkpoint = await saveCheckpoint(dataDir, balancedCheckpoint);
@@ -386,9 +393,16 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
                       dataDir,
                       paperId,
                       {
+                        listeningSingleGroup: scope.mode === "specialty",
+                        listeningQuestionCounts:
+                          scope.listeningQuestionCounts,
                         listeningAnswerIndexes:
                           createBalancedAnswerIndexes(
-                            listeningAnswerCounts(stage),
+                            listeningAnswerCounts(
+                              stage,
+                              scope.mode === "specialty",
+                              scope.listeningQuestionCounts,
+                            ),
                             `${paperId}\n${stage}\nlistening-answers`,
                             listeningPrecedingAnswers(checkpoint, stage),
                           ),
@@ -425,7 +439,11 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
           questions = balanceChoiceAnswers(
             questions,
             createBalancedAnswerIndexes(
-              listeningAnswerCounts(stage),
+              listeningAnswerCounts(
+                stage,
+                scope.mode === "specialty",
+                scope.listeningQuestionCounts,
+              ),
               `${paperId}\n${stage}\nlistening-answers`,
               listeningPrecedingAnswers(checkpoint, stage),
             ),
@@ -465,6 +483,11 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
                 {
                   readingCSinglePassage:
                     readingCSinglePassage && stage === "reading-c",
+                  listeningSingleGroup:
+                    scope.mode === "specialty" &&
+                    stage.startsWith("listening-"),
+                  listeningQuestionCounts:
+                    scope.listeningQuestionCounts,
                 },
               ),
             )
@@ -482,6 +505,11 @@ export const useCet6GenerationStore = create<Cet6GenerationState>((set, get) => 
                   {
                     readingCSinglePassage:
                       readingCSinglePassage && stage === "reading-c",
+                    listeningSingleGroup:
+                      scope.mode === "specialty" &&
+                      stage.startsWith("listening-"),
+                    listeningQuestionCounts:
+                      scope.listeningQuestionCounts,
                   },
                 ),
               ),
@@ -717,6 +745,7 @@ async function generateBlueprint(
         ? buildCet6SpecialtyBlueprintPrompt(
             scope.selectedStages,
             scope.stageTopics,
+            scope.listeningQuestionCounts,
           )
         : buildCet6BlueprintPrompt()),
       ...(correction
@@ -803,6 +832,8 @@ async function generateStage(
     readingBAnswerIndexes?: readonly number[];
     readingAAnswerIndexes?: readonly number[];
     listeningAnswerIndexes?: readonly number[];
+    listeningSingleGroup?: boolean;
+    listeningQuestionCounts?: Cet6GenerationScope["listeningQuestionCounts"];
     writingOpeningStyle?: WritingOpeningStyle;
   } = {},
 ) {
@@ -856,6 +887,8 @@ async function generateStage(
     const parsed = parseCet6Stage(stage, reply, {
       forcedSharedPassage: options.readingBPassage,
       expectedWritingOpeningStyle: options.writingOpeningStyle,
+      listeningSingleGroup: options.listeningSingleGroup,
+      listeningQuestionCounts: options.listeningQuestionCounts,
       expectedAnswerIndexes:
         options.listeningAnswerIndexes ?? options.readingAAnswerIndexes,
     });
@@ -2054,6 +2087,8 @@ async function repairReadingCRisks(
 function balanceExistingListeningStages(
   checkpoint: Cet6GenerationCheckpoint,
   paperId: string,
+  listeningSingleGroup = false,
+  listeningQuestionCounts?: Cet6GenerationScope["listeningQuestionCounts"],
 ): Cet6GenerationCheckpoint {
   let changed = false;
   const questionsByStage = { ...checkpoint.questionsByStage };
@@ -2068,7 +2103,11 @@ function balanceExistingListeningStages(
     const balanced = balanceChoiceAnswers(
       current,
       createBalancedAnswerIndexes(
-        listeningAnswerCounts(stage),
+        listeningAnswerCounts(
+          stage,
+          listeningSingleGroup,
+          listeningQuestionCounts,
+        ),
         `${paperId}\n${stage}\nlistening-answers`,
         precedingAnswers,
       ),
@@ -2084,7 +2123,21 @@ function balanceExistingListeningStages(
 
 function listeningAnswerCounts(
   stage: "listening-a" | "listening-b" | "listening-c",
+  singleGroup = false,
+  counts?: Cet6GenerationScope["listeningQuestionCounts"],
 ): [number, number, number, number] {
+  if (singleGroup) {
+    const count =
+      stage === "listening-a"
+        ? 4
+        : stage === "listening-b"
+          ? counts?.["listening-b"] ?? 3
+          : counts?.["listening-c"] ?? 4;
+    if (count === 4) {
+      return [1, 1, 1, 1];
+    }
+    return [1, 1, 1, 0];
+  }
   if (stage === "listening-a") return [2, 2, 2, 2];
   if (stage === "listening-b") return [2, 2, 2, 1];
   return [2, 2, 2, 4];

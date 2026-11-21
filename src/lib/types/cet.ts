@@ -43,10 +43,21 @@ export type SpecialtyStageTopics = z.infer<
   typeof SpecialtyStageTopicsSchema
 >;
 
+export const SpecialtyListeningQuestionCountsSchema = z.object({
+  "listening-b": z.union([z.literal(3), z.literal(4)]).default(3),
+  "listening-c": z.union([z.literal(3), z.literal(4)]).default(4),
+});
+
+export type SpecialtyListeningQuestionCounts = z.infer<
+  typeof SpecialtyListeningQuestionCountsSchema
+>;
+
 export const Cet6GenerationScopeSchema = z.object({
   mode: z.enum(["full", "specialty"]).default("full"),
   selectedStages: z.array(Cet6ContentStageSchema).default([]),
   stageTopics: SpecialtyStageTopicsSchema.prefault({}),
+  listeningQuestionCounts:
+    SpecialtyListeningQuestionCountsSchema.optional(),
   focusTopic: z.string().default(""),
 });
 

@@ -147,4 +147,46 @@ describe("listening speech plan", () => {
     expect(byId("recording-3-material-1-1")?.role).toBe("female");
     expect(byId("recording-3-question-22")?.role).toBe("male");
   });
+
+  it("plans one-material specialty audio with singular directions", () => {
+    const paper: ExamPaper = {
+      version: 1,
+      title: "Listening specialty",
+      questions: [
+        listeningQuestion(
+          "b1",
+          9,
+          "Passage one transcript.",
+          "passage-1",
+          "cet-listening-b",
+        ),
+        listeningQuestion(
+          "b2",
+          10,
+          undefined,
+          "passage-1",
+          "cet-listening-b",
+        ),
+        listeningQuestion(
+          "b3",
+          11,
+          undefined,
+          "passage-1",
+          "cet-listening-b",
+        ),
+      ],
+    };
+    const plan = buildListeningSpeechPlan(paper, 165);
+
+    expect(
+      plan.segments.find((segment) => segment.id === "cet-listening-b-directions")
+        ?.text,
+    ).toContain("you will hear one passage");
+    expect(
+      plan.segments.filter((segment) => segment.id.endsWith("-announcement")),
+    ).toHaveLength(1);
+    expect(
+      plan.segments.filter((segment) => segment.pauseAfterMs === 13_100),
+    ).toHaveLength(3);
+  });
 });

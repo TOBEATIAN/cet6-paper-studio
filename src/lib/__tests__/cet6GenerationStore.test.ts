@@ -266,7 +266,17 @@ describe("cet6GenerationStore", () => {
             );
           }
           const stage = stageFromPrompt(messages);
-          const questions = stageQuestions(stage);
+          const allStageQuestions = stageQuestions(stage);
+          const exactListeningCount =
+            stage.startsWith("listening")
+              ? Number(
+                  prompt.match(/exact question count: (\d+)/)?.[1] ?? 0,
+                )
+              : 0;
+          const questions =
+            exactListeningCount > 0
+              ? allStageQuestions.slice(0, exactListeningCount)
+              : allStageQuestions;
           if (stage === "writing" && questions[0]?.type === "essay") {
             const opening = writingOpeningFromPrompt(prompt);
             questions[0].content = `For this part, you are allowed 30 minutes to write an essay. Your essay should begin with the following sentence: "${opening}" You should write at least 150 words but no more than 200 words. You may use your personal experiences to illustrate your point.`;
@@ -361,7 +371,10 @@ describe("cet6GenerationStore", () => {
   it("generates all nine phases, saves each stage, and previews one full paper", async () => {
     await useCet6GenerationStore.getState().start();
 
-    expect(useCet6GenerationStore.getState().status).toBe("completed");
+    expect(
+      useCet6GenerationStore.getState().status,
+      useCet6GenerationStore.getState().errorDetail ?? "",
+    ).toBe("completed");
     expect(useCet6GenerationStore.getState().completedPhases).toHaveLength(9);
     expect(
       tauriMocks.invoke.mock.calls.filter(
@@ -458,7 +471,10 @@ describe("cet6GenerationStore", () => {
       focusTopic: "campus technology",
     });
 
-    expect(useCet6GenerationStore.getState().status).toBe("completed");
+    expect(
+      useCet6GenerationStore.getState().status,
+      useCet6GenerationStore.getState().errorDetail ?? "",
+    ).toBe("completed");
     expect(useCet6GenerationStore.getState().completedPhases).toEqual([
       "blueprint",
       "listening-b",
@@ -479,7 +495,7 @@ describe("cet6GenerationStore", () => {
     );
     expect(
       append?.type === "appendQuestions" ? append.questions : [],
-    ).toHaveLength(17);
+    ).toHaveLength(13);
     expect(
       savedCheckpoints.some(
         (checkpoint) =>
