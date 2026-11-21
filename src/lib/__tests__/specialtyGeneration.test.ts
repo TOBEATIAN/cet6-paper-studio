@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildCet6SpecialtyBlueprintPrompt } from "../cet/pipelinePrompts";
+import {
+  buildCet6ReadingCSingleRiskRepairPrompt,
+  buildCet6SpecialtyBlueprintPrompt,
+} from "../cet/pipelinePrompts";
 import {
   buildCet6Paper,
   parseCet6ReadingCQuestion,
@@ -168,5 +171,48 @@ describe("specialty generation", () => {
     expect(parsed.value.options[2]).toContain(
       "Steady practice leaves only vivid memories",
     );
+  });
+
+  it("repairs a strong-distractor risk as one exact question", () => {
+    const prompt = buildCet6ReadingCSingleRiskRepairPrompt(
+      {
+        index: 0,
+        paragraphCount: 8,
+        targetParagraphWords: [20, 30, 35, 40, 55, 80, 90, 100],
+        sourceParagraphs: [2, 3, 5, 6, 8],
+        questionKinds: ["detail", "detail", "inference", "detail", "attitude"],
+        answerIndexes: [1, 2, 3, 0, 1],
+        source: {
+          outlet: "六级智卷原创编辑部",
+          type: "研究报告",
+          topic: "practice",
+        },
+      },
+      "A frozen article passage.",
+      {
+        id: "cet6-reading-c-1-5",
+        type: "single-choice",
+        content: "What is the passage's attitude toward daily percentages?",
+        options: ["One", "Two", "Three", "Four"],
+        correctAnswer: 1,
+        explanation: "中文解析。故选 B。",
+        score: 14.2,
+        examSection: {
+          kind: "cet-reading-c",
+          groupId: "passage-1",
+          questionNumber: 50,
+          para: 7,
+          questionKind: "attitude",
+        },
+      },
+      4,
+      "Q50-D is too strongly supported and must be rewritten.",
+    )
+      .map((message) => message.content)
+      .join("\n");
+    expect(prompt).toContain("Repair only Reading Section C question 50");
+    expect(prompt).toContain("Return exactly one question object");
+    expect(prompt).toContain("Q50-D is too strongly supported");
+    expect(prompt).not.toContain("Return exactly five questions");
   });
 });
