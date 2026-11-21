@@ -70,6 +70,10 @@ export function Cet6GenerationProgress() {
   const elapsedMs = generationStartedAt
     ? Math.max(0, now - Date.parse(generationStartedAt))
     : 0;
+  const settled =
+    status === "completed" ||
+    (status === "idle" && completedPhases.length > 0);
+  const displayedElapsedMs = settled ? estimatedTotalMs : elapsedMs;
   const overrunMs = Math.max(0, elapsedMs - estimatedTotalMs);
   const remainingMs =
     overrunMs > 0
@@ -131,10 +135,10 @@ export function Cet6GenerationProgress() {
           )}
           {generationStartedAt && estimatedTotalMs > 0 && (
             <p className="mt-1 text-xs text-muted-foreground">
-              {status === "completed"
+              {settled
                 ? t("cet6.etaComplete", {
                     elapsed: formatGenerationDuration(
-                      elapsedMs,
+                      displayedElapsedMs,
                       t("cet6.etaLessThanMinute"),
                     ),
                   })
@@ -152,7 +156,7 @@ export function Cet6GenerationProgress() {
                       t("cet6.etaLessThanMinute"),
                     ),
                   })}
-              {overrunMs > 0 && (
+              {!settled && overrunMs > 0 && (
                 <span className="ml-1 text-amber-700 dark:text-amber-300">
                   {t("cet6.etaRetrying", {
                     overrun: formatGenerationDuration(
