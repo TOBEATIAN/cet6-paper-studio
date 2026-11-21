@@ -43,6 +43,7 @@ const SHORT_TIMEOUT: Duration = Duration::from_secs(30);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Non-streaming staged generation can take several minutes per section.
 const COMPLETE_TIMEOUT: Duration = Duration::from_secs(600);
+const COMPLETION_RETRY_DELAYS_MS: [u64; 2] = [2_000, 5_000];
 const MAX_IMAGE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES: usize = 40 * 1024 * 1024;
 
@@ -246,19 +247,64 @@ pub async fn complete_chat(
         body["max_tokens"] = serde_json::json!(m);
     }
 
-    let resp = completion_client()?
-        .post(join(&base_url, "chat/completions"))
-        .bearer_auth(&api_key)
-        .json(&body)
-        .send()
-        .await?;
+    let client = completion_client()?;
+    let url = join(&base_url, "chat/completions");
+    let mut last_error = AppError::Network("completion request failed".into());
 
-    if !resp.status().is_success() {
-        return Err(status_error(resp).await);
+    for attempt in 0..=COMPLETION_RETRY_DELAYS_MS.len() {
+        let response = client
+            .post(&url)
+            .bearer_auth(&api_key)
+            .json(&body)
+            .send()
+            .await;
+
+        let response = match response {
+            Ok(response) => response,
+            Err(error) if error.is_timeout() => return Err(error.into()),
+            Err(error) => {
+                last_error = AppError::Network(error.to_string());
+                if attempt < COMPLETION_RETRY_DELAYS_MS.len() {
+                    tokio::time::sleep(Duration::from_millis(COMPLETION_RETRY_DELAYS_MS[attempt]))
+                        .await;
+                    continue;
+                }
+                return Err(last_error);
+            }
+        };
+
+        if !response.status().is_success() {
+            if should_retry_completion_status(response.status())
+                && attempt < COMPLETION_RETRY_DELAYS_MS.len()
+            {
+                last_error = status_error(response).await;
+                tokio::time::sleep(Duration::from_millis(COMPLETION_RETRY_DELAYS_MS[attempt]))
+                    .await;
+                continue;
+            }
+            return Err(status_error(response).await);
+        }
+
+        match response.text().await {
+            Ok(raw) => return parse_completion_content(&raw),
+            Err(error) if !error.is_timeout() => {
+                last_error = AppError::Network(format!("response body decode failed: {error}"));
+                if attempt < COMPLETION_RETRY_DELAYS_MS.len() {
+                    tokio::time::sleep(Duration::from_millis(COMPLETION_RETRY_DELAYS_MS[attempt]))
+                        .await;
+                    continue;
+                }
+                return Err(last_error);
+            }
+            Err(error) => return Err(error.into()),
+        }
     }
 
-    let raw = resp.text().await?;
-    parse_completion_content(&raw)
+    Err(last_error)
+}
+
+fn should_retry_completion_status(status: reqwest::StatusCode) -> bool {
+    status.is_server_error()
 }
 
 /// Transcribe supplied handwriting or printed answer images with the configured
@@ -714,6 +760,22 @@ mod tests {
         let error = parse_completion_content(raw).unwrap_err().to_string();
         assert!(error.contains("finish_reason=length"));
         assert!(error.contains("reasoning_characters=8"));
+    }
+
+    #[test]
+    fn completion_retries_only_server_errors() {
+        assert!(should_retry_completion_status(
+            reqwest::StatusCode::BAD_GATEWAY
+        ));
+        assert!(should_retry_completion_status(
+            reqwest::StatusCode::SERVICE_UNAVAILABLE
+        ));
+        assert!(!should_retry_completion_status(
+            reqwest::StatusCode::UNAUTHORIZED
+        ));
+        assert!(!should_retry_completion_status(
+            reqwest::StatusCode::TOO_MANY_REQUESTS
+        ));
     }
 
     #[test]

@@ -90,6 +90,15 @@
 - 具名观点检查从只接受 `What does` 扩展为 `What / How / Why`，修复 Q47
   `What can ... Dr. Helena Marsh ...` 被误判的问题。
 
+### 2026-11-21 非流式响应解码中断
+
+- 最新诊断 `c7d159bb...` 只在正文生成阶段留下一次 78 秒请求，错误为
+  `http: error decoding response body`，没有任何模型正文，说明不是题目审计问题。
+- `complete_chat` 原来只请求一次；连接或响应体解码抖动会直接终止整次专项生成。
+- 现在对连接失败、响应体解码失败和 HTTP 5xx 最多重试两次，间隔 2 秒和 5 秒；
+  401/403、429 与正常超时不重试，仍保持原有错误语义。
+- 验证：Rust 42 项常规测试、前端 425 项测试、类型检查和格式检查通过。
+
 ## 诊断入口
 
 `E:\Download\CET-6\generation\cet6\diagnostics\a4b6842c-bb2a-4639-b123-d7f45ac46ba4`
